@@ -1,0 +1,41 @@
+{
+  "skill_name": "flomo-knowledge-sync",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "帮我把最近 7 天的浮墨笔记同步到当前 Obsidian 知识库。先确认 MCP 和知识库规则，不要覆盖已经存在的笔记。",
+      "expected_output": "探测 flomo memo_search，读取项目知识库规则与既有浮墨索引，按 memo ID 增量写入规定的收件箱并生成同步报告。",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "这是一个只有 README 的新项目，请把 flomo 同步进来；项目还没有说哪个文件夹是知识库。",
+      "expected_output": "不读取 flomo、不擅自把项目当知识库；让用户选择提供本地知识库路径，或确认使用当前 AI 工作目录，并展示当前目录的绝对路径。",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "我换到 Cursor 了，想继续同步浮墨。当前没有 flomo 工具，但本地已经有 flomo-sync-index.md，其中一条笔记文件被我手动删掉了。",
+      "expected_output": "指导以官方 Streamable HTTP 地址连接并授权；连接成功后保留已删除 ID，不自动恢复，增量同步其他笔记并在报告中记录删除保持。",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "第一次同步浮墨，我没有指定时间范围。之前同步过的一条 memo 在 flomo 改了内容，另一条已经在 flomo 删除；本地笔记里有我自己写的理解。",
+      "expected_output": "默认查询最近 3 个月且一条 memo 一个 Markdown；更新来源属性与原始内容但保留本地理解；仅在可靠确认来源删除时在索引标记删除并保留本地文件。",
+      "files": []
+    },
+    {
+      "id": 5,
+      "prompt": "把浮墨同步到我指定的 notes 文件夹。里面没有规范，但 templates 目录有会议模板和一个外部采集模板。",
+      "expected_output": "识别外部采集模板为相关模板、排除会议模板；使用相关模板并补充 memo ID 等同步字段，一条 memo 一个 Markdown。",
+      "files": []
+    },
+    {
+      "id": 6,
+      "prompt": "同步 flomo 到这个空的知识库文件夹。里面既没有规则也没有模板。",
+      "expected_output": "采用 flomo-notes 通用目录、内置笔记模板和索引模板；首次默认最近 3 个月，不擅自创建整套知识库规范。",
+      "files": []
+    }
+  ]
+}
