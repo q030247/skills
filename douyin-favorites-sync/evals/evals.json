@@ -76,6 +76,19 @@
         "数量不一致时标记部分完成且不更新全量同步成功时间",
         "明确说明索引去重不能自动补回仍未被捕获的首屏数据"
       ]
+    },
+    {
+      "id": 7,
+      "prompt": "用这个技能同步抖音收藏。不要临时生成处理程序，要调用技能仓库里固定的脚本；第二次运行只给新增 JSON，也要保留旧条目和我手填的‘为什么收藏’。",
+      "expected_output": "复用 douyin_capture.js 和 process_favorites.py；Python 脚本从 Markdown 主表回读人工字段，通过带机器区的 Markdown 索引增量合并，再原子更新完整列表和报告。",
+      "files": [],
+      "assertions": [
+        "浏览器采集复用 scripts/douyin_capture.js 而非实时重写",
+        "字段提取、去重和 Markdown 生成复用 scripts/process_favorites.py",
+        "第二次只输入新增 JSON 时仍能从索引重建完整列表",
+        "重新生成时保留人工填写的为什么收藏和支持什么决策/输出",
+        "既有文件没有 AI 或索引机器标记时拒绝覆盖"
+      ]
     }
   ]
 }
