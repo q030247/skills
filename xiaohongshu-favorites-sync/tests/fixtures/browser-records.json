@@ -1,0 +1,18 @@
+[
+  {
+    "标题": "测试收藏一",
+    "作者": "作者甲",
+    "href": "/explore/abc123?xsec_token=token-a&xsec_source=pc_collect&utm_source=test",
+    "收藏分组": "营销渠道研究"
+  },
+  {
+    "title": "重复记录应去重",
+    "author": "作者甲",
+    "url": "https://www.xiaohongshu.com/explore/abc123?xsec_token=token-b&xsec_source=pc_collect"
+  },
+  {
+    "title": "缺少ID的记录",
+    "author": "作者乙",
+    "url": "https://www.xiaohongshu.com/explore/?xsec_source=pc_collect"
+  }
+]
