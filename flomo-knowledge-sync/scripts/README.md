@@ -8,10 +8,13 @@
 - 按 memo ID 去重，单批最多 50 条。
 - 拒绝写入被截断的 memo。
 - 新增一条 memo 一个 Markdown。
-- 来源更新时只替换来源属性和“原始内容”章节。
+- 首次运行读取知识库规则并生成`浮墨同步配置.md`。
+- 来源更新时保存旧原文，再替换来源属性和“原始内容”章节。
 - 本地文件缺失时保留历史 ID，并标记为已删除。
 - 来源明确删除时只标记，不物理删除本地文件。
 - 同时重建 Markdown 索引的 YAML、统计和人工核对表。
+- 笔记、索引与 Markdown 报告按同一批本地事务提交。
+- 通过迁移清单把已迁出收件箱的记录标记为`moved`。
 
 ## 输入
 
@@ -35,6 +38,18 @@ python3 scripts/flomo_sync.py --vault /path/to/vault --input /tmp/memos.json
 
 ```sh
 python3 scripts/flomo_sync.py --vault /path/to/vault --input /tmp/memos.json --apply
+```
+
+首次配置预览：
+
+```sh
+python3 scripts/flomo_sync.py --vault /path/to/vault --configure-only
+```
+
+迁移清单格式：
+
+```json
+{"relocations": [{"memo_id": "...", "local_path": "99-归档/浮墨/example.md", "destination_type": "archive"}]}
 ```
 
 恢复本地已删除笔记需要用户明确授权，并传入`--restore-deleted --apply`。脚本不负责 MCP 连接、OAuth 和 Token 管理，也不会向 flomo 写入内容。

@@ -36,6 +36,18 @@
       "prompt": "同步 flomo 到这个空的知识库文件夹。里面既没有规则也没有模板。",
       "expected_output": "采用 flomo-notes 通用目录、内置笔记模板和索引模板；首次默认最近 3 个月，不擅自创建整套知识库规范。",
       "files": []
+    },
+    {
+      "id": 7,
+      "prompt": "第一次在这个 Obsidian 库运行浮墨同步。AGENTS.md 规定不用 confidentiality、原始记录不能覆盖、处理完成后必须迁出收件箱。请自动适配后同步。",
+      "expected_output": "首次读取知识库规则并生成可复核的浮墨同步配置；不生成 confidentiality；来源更新保留旧版原文；启用迁移清单和索引路径闭环。",
+      "files": []
+    },
+    {
+      "id": 8,
+      "prompt": "这条浮墨笔记已经人工确认并从收件箱迁到项目材料目录，请更新同步状态，不要把它当成删除。",
+      "expected_output": "要求或使用包含 memo_id、目标路径和目标类型的迁移清单；验证目标存在后把索引标为 moved 并更新 local_path、moved_at 和 destination_type，同时生成事务化报告。",
+      "files": []
     }
   ]
 }

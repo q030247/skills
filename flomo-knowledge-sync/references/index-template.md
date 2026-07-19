@@ -12,7 +12,6 @@ status: active
 source: flomo
 created: YYYY-MM-DD
 updated: YYYY-MM-DD
-confidentiality: personal
 ai_generated: true
 index_version: 1
 identity_key: memo_id
@@ -34,7 +33,7 @@ items: []
 
 - 一条 memo 对应一个 Markdown 文件。
 - 已登记且未更新的 ID：跳过，不重复创建。
-- flomo 内容已更新：只更新来源属性和“原始内容”区域。
+- flomo 内容已更新：保留旧版原文，再更新来源属性和“原始内容”区域。
 - flomo 内容已删除：保留本地文件，在索引标记来源删除。
 - 本地文件被删除：保留历史 ID，不自动恢复。
 - 新笔记：正文和附件成功落盘后才能登记。
@@ -74,6 +73,9 @@ items: []
   sync_action: added
   is_deleted: false
   deleted_at:
+  moved_at:
+  destination_type:
+  revision_count: 0
   synced_at: YYYY-MM-DDTHH:mm:ss+08:00
   attachments: []
 ```

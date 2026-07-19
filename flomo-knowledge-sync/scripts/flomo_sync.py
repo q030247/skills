@@ -10,12 +10,17 @@ library so the bundled skill has no third-party dependency.
 from __future__ import annotations
 
 import argparse
+import copy
 import json
+import os
 import re
 import sys
+import tempfile
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
+
+from knowledge_base_profile import discover_profile, load_profile, render_profile
 
 
 ACTIONS = {"added", "updated", "deleted"}
@@ -116,7 +121,6 @@ def render_index(meta: dict[str, Any], items: dict[str, dict[str, Any]], today: 
         "source: flomo",
         f"created: {meta.get('created') or today}",
         f"updated: {today}",
-        "confidentiality: personal",
         "ai_generated: true",
         f"index_version: {meta.get('index_version') or 1}",
         "identity_key: memo_id",
@@ -132,7 +136,8 @@ def render_index(meta: dict[str, Any], items: dict[str, dict[str, Any]], today: 
     keys = [
         "source_url", "source_created_at", "source_updated_at", "local_path",
         "local_state", "source_state", "sync_status", "sync_action",
-        "is_deleted", "deleted_at", "synced_at",
+        "is_deleted", "deleted_at", "moved_at", "destination_type",
+        "revision_count", "synced_at",
     ]
     for item in ordered:
         front.append(f"  - memo_id: {item['memo_id']}")
@@ -150,7 +155,7 @@ def render_index(meta: dict[str, Any], items: dict[str, dict[str, Any]], today: 
         "此文件是浮墨来源文件夹内的唯一同步状态台账。YAML 中的 `items` 是机器数据，正文表格用于人工核对。", "",
         "## 同步策略", "",
         "- 已登记且未更新的 ID：跳过。",
-        "- 来源更新：只更新来源属性和“原始内容”章节。",
+        "- 来源更新：保留旧版原文，再更新来源属性和“原始内容”章节。",
         "- 来源删除：保留本地文件并标记。",
         "- 本地删除：保留历史 ID，不自动恢复。", "",
         "## 状态统计", "",
@@ -210,11 +215,12 @@ def note_path(target_dir: Path, memo: dict[str, Any]) -> Path:
     return target_dir / f"{stamp}-{safe_filename(title_from(memo))}.md"
 
 
-def render_note(memo: dict[str, Any], rel_path: str, confidentiality: str) -> str:
+def render_note(memo: dict[str, Any], rel_path: str, include_confidentiality: bool = False) -> str:
     title = title_from(memo)
     created = memo["created_at"][:10]
     updated = memo.get("updated_at", memo["created_at"])[:10]
     tags = json.dumps(memo.get("tags") or [], ensure_ascii=False)
+    confidentiality = "confidentiality: personal\n" if include_confidentiality else ""
     return f"""---
 title: {title}
 summary: 浮墨原始记录，内容待整理确认。
@@ -228,8 +234,7 @@ source_created_at: {memo['created_at']}
 source_updated_at: {memo.get('updated_at', memo['created_at'])}
 created: {created}
 updated: {updated}
-confidentiality: {confidentiality}
-ai_generated: false
+{confidentiality}ai_generated: false
 ---
 
 # {title}
@@ -255,7 +260,7 @@ ai_generated: false
 """
 
 
-def update_note(path: Path, memo: dict[str, Any]) -> str:
+def update_note(path: Path, memo: dict[str, Any], preserve_history: bool = True) -> str:
     text = path.read_text(encoding="utf-8")
     replacements = {
         "source_url": memo.get("url", ""),
@@ -266,18 +271,65 @@ def update_note(path: Path, memo: dict[str, Any]) -> str:
         pattern = rf"(?m)^{re.escape(key)}:.*$"
         if re.search(pattern, text):
             text = re.sub(pattern, f"{key}: {value}", text, count=1)
-    source = f"## 原始内容\n\n{memo.get('content', '')}\n\n"
-    pattern = r"(?ms)^## 原始内容\s*\n.*?(?=^## |\Z)"
-    if not re.search(pattern, text):
+    pattern = r"(?ms)^## 原始内容\s*\n(.*?)(?=^## |\Z)"
+    match = re.search(pattern, text)
+    if not match:
         raise ValueError(f"Cannot safely find original-content section: {path}")
-    return re.sub(pattern, source, text, count=1)
+    previous = match.group(1).strip()
+    current = memo.get("content", "")
+    source = f"## 原始内容\n\n{current}\n\n"
+    text = re.sub(pattern, source, text, count=1)
+    if preserve_history and previous != current.strip():
+        stamp = memo.get("updated_at", memo["created_at"])
+        history_entry = f"### {stamp}\n\n{previous}\n\n"
+        marker = r"(?m)^## 来源更新历史\s*$"
+        if re.search(marker, text):
+            text = re.sub(marker, "## 来源更新历史\n\n" + history_entry.rstrip(), text, count=1)
+        else:
+            text = text.rstrip() + "\n\n## 来源更新历史\n\n" + history_entry
+    return text
 
 
-def build_plan(root: Path, target: Path, items: dict[str, dict[str, Any]], memos: list[dict[str, Any]], restore: bool) -> list[dict[str, Any]]:
+def load_relocations(path: Optional[Path]) -> dict[str, dict[str, Any]]:
+    if path is None:
+        return {}
+    data = json.loads(path.read_text(encoding="utf-8"))
+    rows = data.get("relocations", data) if isinstance(data, dict) else data
+    if not isinstance(rows, list):
+        raise ValueError("Relocation manifest must be a list or contain relocations")
+    result: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        memo_id = row.get("memo_id")
+        if not memo_id or not row.get("local_path"):
+            raise ValueError("Every relocation needs memo_id and local_path")
+        result[memo_id] = row
+    return result
+
+
+def build_plan(
+    root: Path,
+    target: Path,
+    items: dict[str, dict[str, Any]],
+    memos: list[dict[str, Any]],
+    restore: bool,
+    relocations: Optional[dict[str, dict[str, Any]]] = None,
+) -> list[dict[str, Any]]:
     plan: list[dict[str, Any]] = []
+    relocations = relocations or {}
     for item in items.values():
+        relocation = relocations.get(item["memo_id"])
+        if relocation:
+            destination = root / relocation["local_path"]
+            if not destination.is_file():
+                raise ValueError(f"Relocation destination does not exist: {destination}")
+            plan.append({
+                "action": "relocate", "id": item["memo_id"],
+                "path": item.get("local_path"), "new_path": relocation["local_path"],
+                "destination_type": relocation.get("destination_type", "other"),
+            })
+            continue
         local = root / str(item.get("local_path") or "")
-        if not local.is_file() and item.get("local_state") != "missing":
+        if not local.is_file() and item.get("local_state") not in {"missing", "moved"}:
             plan.append({"action": "mark_local_deleted", "id": item["memo_id"], "path": item.get("local_path")})
     for memo in memos:
         old = items.get(memo["id"])
@@ -298,60 +350,126 @@ def build_plan(root: Path, target: Path, items: dict[str, dict[str, Any]], memos
     return plan
 
 
+def render_report(result: dict[str, Any], index_path: str, target_dir: str, compact: bool) -> str:
+    counts = result["counts"]
+    rows = [
+        ("新增", counts.get("add", 0) + counts.get("restore", 0)),
+        ("更新", counts.get("update", 0)),
+        ("跳过", counts.get("skip", 0) + counts.get("skip_deleted", 0)),
+        ("删除保持", counts.get("mark_local_deleted", 0) + counts.get("mark_source_deleted", 0)),
+        ("迁移登记", counts.get("relocate", 0)),
+        ("失败", 0),
+    ]
+    mode = "精简" if compact else "完整"
+    lines = [
+        "---",
+        f"title: {result['timestamp'][:16].replace('T', ' ')} 浮墨增量同步报告",
+        f"summary: 浮墨增量同步完成，本批候选 {result['candidate_count']} 条。",
+        "tags: [浮墨, 同步, 执行报告]",
+        "type: system",
+        "status: done",
+        "source: ai",
+        f"created: {result['timestamp'][:10]}",
+        f"updated: {result['timestamp'][:10]}",
+        "ai_generated: true",
+        "---", "",
+        f"# {result['timestamp'][:16].replace('T', ' ')} 浮墨增量同步报告", "",
+        "## 执行概览", "",
+        f"- 执行时间：{result['timestamp']}",
+        f"- 报告类型：{mode}",
+        f"- 目标目录：`{target_dir}`",
+        f"- 同步索引：`{index_path}`",
+        f"- 本批候选：{result['candidate_count']}", "",
+        "## 结果", "", "| 项目 | 数量 |", "|---|---:|",
+    ]
+    lines.extend(f"| {name} | {count} |" for name, count in rows)
+    if not compact:
+        lines += ["", "## 操作明细", ""]
+        for op in result["operations"]:
+            detail = op.get("new_path") or op.get("path") or ""
+            lines.append(f"- `{op['action']}` `{op['id']}` → `{detail}`")
+    lines += [
+        "", "## 安全检查", "",
+        "- 未向 flomo 写入内容。",
+        "- 未物理删除本地 Markdown。",
+        "- 来源更新时保留旧版原始内容。",
+        "- 报告与索引在同一批本地事务中写入。", "",
+    ]
+    return "\n".join(lines)
+
+
+def atomic_commit(writes: dict[Path, str]) -> None:
+    """Stage every text file beside its target, then replace all targets."""
+    staged: list[tuple[Path, Path]] = []
+    try:
+        for target, content in writes.items():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            handle, temp_name = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=str(target.parent))
+            temp = Path(temp_name)
+            with os.fdopen(handle, "w", encoding="utf-8") as stream:
+                stream.write(content)
+                stream.flush()
+                os.fsync(stream.fileno())
+            staged.append((temp, target))
+        for temp, target in staged:
+            os.replace(str(temp), str(target))
+    finally:
+        for temp, _ in staged:
+            if temp.exists():
+                temp.unlink()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Plan/apply local flomo Markdown synchronization")
     parser.add_argument("--vault", type=Path, required=True)
-    parser.add_argument("--input", type=Path, required=True, help="Normalized memo JSON from MCP")
-    parser.add_argument("--target-dir", default="00-收件箱/浮墨笔记")
-    parser.add_argument("--index", default="00-收件箱/浮墨笔记/浮墨同步索引.md")
-    parser.add_argument("--report", type=Path, help="Write machine-readable plan/result JSON")
-    parser.add_argument("--confidentiality", default="personal", choices=["personal", "company", "telecom"])
+    parser.add_argument("--input", type=Path, help="Normalized memo JSON from MCP")
+    parser.add_argument("--target-dir")
+    parser.add_argument("--index")
+    parser.add_argument("--profile")
+    parser.add_argument("--report", help="Markdown report path inside vault")
+    parser.add_argument("--result-json", type=Path, help="Optional machine-readable result JSON")
+    parser.add_argument("--relocate-manifest", type=Path)
+    parser.add_argument("--configure-only", action="store_true")
     parser.add_argument("--restore-deleted", action="store_true")
     parser.add_argument("--apply", action="store_true", help="Write changes; default is dry-run")
     args = parser.parse_args()
 
     root = args.vault.resolve()
-    target = (root / args.target_dir).resolve()
-    index_path = (root / args.index).resolve()
-    if root not in target.parents or root not in index_path.parents:
-        raise SystemExit("Target and index must stay inside vault")
+    discovered = discover_profile(root)
+    profile_rel = args.profile or discovered["profile_path"]
+    profile_path = (root / profile_rel).resolve()
+    profile_exists = profile_path.is_file()
+    profile = load_profile(profile_path) if profile_exists else discovered
+    profile_changed = (not profile_exists) or profile.get("knowledge_base_fingerprint") != discovered["knowledge_base_fingerprint"]
+    if profile_changed:
+        profile = discovered
+    target_rel = args.target_dir or profile["target_dir"]
+    index_rel = args.index or profile["index_path"]
+    target = (root / target_rel).resolve()
+    index_path = (root / index_rel).resolve()
+    report_dir = (root / profile["report_dir"]).resolve()
+    paths = [target, index_path, profile_path, report_dir]
+    if any(root != path and root not in path.parents for path in paths):
+        raise SystemExit("Target, index, profile, and report must stay inside vault")
+    if args.configure_only and not args.apply:
+        print(render_profile(profile, now_iso()[:10]))
+        return 0
+    if args.configure_only and args.apply:
+        atomic_commit({profile_path: render_profile(profile, now_iso()[:10])})
+        print(json.dumps({"mode": "configure", "profile": profile_rel}, ensure_ascii=False))
+        return 0
+    if args.input is None:
+        raise SystemExit("--input is required unless --configure-only is used")
     meta, items = parse_index(index_path)
     memos = load_memos(args.input)
-    if len(memos) > 50:
-        raise SystemExit("Refusing more than 50 memos in one batch")
-    plan = build_plan(root, target, items, memos, args.restore_deleted)
+    if len(memos) > int(profile.get("batch_limit", 50)):
+        raise SystemExit(f"Refusing more than {profile.get('batch_limit', 50)} memos in one batch")
+    relocations = load_relocations(args.relocate_manifest)
+    plan = build_plan(root, target, items, memos, args.restore_deleted, relocations)
+    if profile_changed:
+        plan.insert(0, {"action": "configure_profile", "id": "profile", "path": profile_rel})
     timestamp = now_iso()
     by_id = {m["id"]: m for m in memos}
-
-    if args.apply:
-        target.mkdir(parents=True, exist_ok=True)
-        for op in plan:
-            item = items.get(op["id"])
-            memo = by_id.get(op["id"])
-            if op["action"] == "mark_local_deleted":
-                item.update(local_state="missing", sync_action="deleted", is_deleted=True, deleted_at=timestamp)
-            elif op["action"] in {"add", "restore"}:
-                path = root / op["path"]
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text(render_note(memo, op["path"], args.confidentiality), encoding="utf-8")
-                items[memo["id"]] = {
-                    "memo_id": memo["id"], "source_url": memo.get("url", ""),
-                    "source_created_at": memo["created_at"],
-                    "source_updated_at": memo.get("updated_at", memo["created_at"]),
-                    "local_path": op["path"], "local_state": "present", "source_state": "present",
-                    "sync_status": "synced", "sync_action": "added", "is_deleted": False,
-                    "deleted_at": None, "synced_at": timestamp, "attachments": [],
-                }
-            elif op["action"] == "update":
-                path = root / op["path"]
-                path.write_text(update_note(path, memo), encoding="utf-8")
-                item.update(source_url=memo.get("url", ""), source_updated_at=memo.get("updated_at", memo["created_at"]), sync_action="updated", synced_at=timestamp)
-            elif op["action"] == "mark_source_deleted":
-                item.update(source_state="deleted", sync_action="deleted", is_deleted=True, deleted_at=timestamp, synced_at=timestamp)
-        meta["last_successful_sync_at"] = timestamp
-        index_path.parent.mkdir(parents=True, exist_ok=True)
-        index_path.write_text(render_index(meta, items, timestamp[:10]), encoding="utf-8")
-
     result = {
         "mode": "apply" if args.apply else "dry-run",
         "timestamp": timestamp,
@@ -359,9 +477,61 @@ def main() -> int:
         "counts": {a: sum(op["action"] == a for op in plan) for a in sorted({op["action"] for op in plan})},
         "operations": plan,
     }
+
+    if args.apply:
+        next_items = copy.deepcopy(items)
+        writes: dict[Path, str] = {}
+        for op in plan:
+            if op["action"] == "configure_profile":
+                continue
+            item = next_items.get(op["id"])
+            memo = by_id.get(op["id"])
+            if op["action"] == "relocate":
+                item.update(
+                    local_path=op["new_path"], local_state="moved", moved_at=timestamp,
+                    destination_type=op["destination_type"], sync_action="updated", synced_at=timestamp,
+                )
+            item = items.get(op["id"])
+            if op["action"] == "mark_local_deleted":
+                item = next_items[op["id"]]
+                item.update(local_state="missing", sync_action="deleted", is_deleted=True, deleted_at=timestamp)
+            elif op["action"] in {"add", "restore"}:
+                path = root / op["path"]
+                writes[path] = render_note(memo, op["path"], bool(profile.get("include_confidentiality", False)))
+                next_items[memo["id"]] = {
+                    "memo_id": memo["id"], "source_url": memo.get("url", ""),
+                    "source_created_at": memo["created_at"],
+                    "source_updated_at": memo.get("updated_at", memo["created_at"]),
+                    "local_path": op["path"], "local_state": "present", "source_state": "present",
+                    "sync_status": "synced", "sync_action": "added", "is_deleted": False,
+                    "deleted_at": None, "moved_at": None, "destination_type": None,
+                    "revision_count": 0, "synced_at": timestamp, "attachments": [],
+                }
+            elif op["action"] == "update":
+                path = root / op["path"]
+                item = next_items[op["id"]]
+                writes[path] = update_note(path, memo, bool(profile.get("preserve_source_history", True)))
+                item.update(source_url=memo.get("url", ""), source_updated_at=memo.get("updated_at", memo["created_at"]), sync_action="updated", synced_at=timestamp)
+                item["revision_count"] = int(item.get("revision_count") or 0) + 1
+            elif op["action"] == "mark_source_deleted":
+                item = next_items[op["id"]]
+                item.update(source_state="deleted", sync_action="deleted", is_deleted=True, deleted_at=timestamp, synced_at=timestamp)
+        meta["last_successful_sync_at"] = timestamp
+        writes[index_path] = render_index(meta, next_items, timestamp[:10])
+        if profile_changed:
+            writes[profile_path] = render_profile(profile, timestamp[:10])
+        report_name = f"{timestamp[:10]}-{timestamp[11:13]}{timestamp[14:16]}{timestamp[17:19]}-浮墨增量同步报告.md"
+        report_path = (root / args.report).resolve() if args.report else report_dir / report_name
+        if root != report_path and root not in report_path.parents:
+            raise SystemExit("Report must stay inside vault")
+        substantive = {"add", "restore", "update", "mark_local_deleted", "mark_source_deleted", "relocate"}
+        compact = not any(op["action"] in substantive for op in plan)
+        writes[report_path] = render_report(result, index_rel, target_rel, compact)
+        atomic_commit(writes)
+
     output = json.dumps(result, ensure_ascii=False, indent=2)
-    if args.report:
-        args.report.write_text(output + "\n", encoding="utf-8")
+    if args.result_json:
+        args.result_json.write_text(output + "\n", encoding="utf-8")
     print(output)
     return 0
 
