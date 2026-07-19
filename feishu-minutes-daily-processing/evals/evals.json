@@ -1,0 +1,27 @@
+{
+  "skill_name": "feishu-minutes-daily-processing",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "整理今天新增的飞书妙记。一个来源包的 transcript_review_status 还是 pending_review，另一个已经 ready_for_extraction 且 transcript_text_source 为 original。",
+      "expected_output": "跳过未人工放行的来源包，只处理已放行来源包，并按来源包统计。",
+      "files": [],
+      "assertions": [
+        "pending_review 来源包不产生结论或候选待办",
+        "ready_for_extraction 来源包先读智能纪要并按需核验逐字稿",
+        "输出包含校订闸门状态统计"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "处理一条选择 corrected 文本的妙记，但 corrected_transcript 链接失效；会议智能纪要里还有三条 todo。",
+      "expected_output": "停止该来源包并标记待确认，不从 todo 创建候选或正式任务。",
+      "files": [],
+      "assertions": [
+        "校订稿链接异常时停止处理来源包",
+        "不把飞书 todo 直接转换为正式任务",
+        "不读取或改写原始逐字稿正文"
+      ]
+    }
+  ]
+}

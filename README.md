@@ -10,9 +10,7 @@
 |---|---|---|
 | [`douyin-favorites-sync`](./douyin-favorites-sync/) | 同步抖音收藏合集 | 判断浏览器能力和登录状态，通过页面原生请求采集收藏，按作品 ID 去重，输出 Markdown 表格并维护同步索引 |
 | [`feishu-minutes-knowledge-sync`](./feishu-minutes-knowledge-sync/) | 同步飞书妙记 | 检查 `lark-cli` 和用户授权，增量获取妙记，为每条记录生成互相双链的智能纪要与原始逐字稿 |
-| [`flomo-daily-processing`](./flomo-daily-processing/) | 每日整理浮墨笔记 | 对已落盘浮墨执行多标签分流，生成闪念卡、候选待办和文章提炼卡，并安全转换用户已批准的正式任务 |
 | [`flomo-knowledge-sync`](./flomo-knowledge-sync/) | 同步 flomo 笔记 | 连接 flomo 官方 MCP，按 memo ID 增量同步到本地知识库，并生成同步索引与执行报告 |
-| [`flomo-weekly-review`](./flomo-weekly-review/) | 每周整理浮墨成果 | 汇总本周闪念卡、文章概念和候选待办，完成主题归组、成熟度复核、任务审计和知识增量建议 |
 | [`obsidian-ai-growth-organizer`](./obsidian-ai-growth-organizer/) | 建设和整理 Obsidian 知识库 | 诊断知识库结构、初始化规则、分批整理笔记，并建立可审计、需要人工确认的 AI 自成长机制 |
 
 ## 目录结构
@@ -52,15 +50,9 @@ skill-name/
 - “把我的抖音收藏合集同步到当前 Obsidian 知识库。”
 - “把最近一个月的飞书妙记同步到本地，并保留原始逐字稿。”
 - “将 flomo 笔记增量同步到这个 Markdown 知识库。”
-- “整理今天新增和待处理的浮墨笔记，不要执行同步。”
-- “汇总本周浮墨闪念和文章概念，检查候选待办转换情况。”
 - “先诊断这个 Obsidian 库，再给我一份分批整理计划。”
 
 智能体应根据 `SKILL.md` 的描述自动选择相应技能；也可以在提示词中明确指定技能名称。
-
-### flomo 技能如何配合
-
-`flomo-knowledge-sync`只负责把来源数据增量写入知识库；`flomo-daily-processing`负责同步后的每日语义整理；`flomo-weekly-review`只汇总本周已经产生的衍生成果。拆分职责可以避免同步过程改写原始内容，也能防止每日与每周流程重复处理同一批来源。
 
 ## 设计原则
 
