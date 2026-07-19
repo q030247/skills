@@ -13,6 +13,8 @@ type: meeting
 status: raw
 source: feishu-minutes
 source_id: obcnxxxxxxxx
+source_group_id: obcnxxxxxxxx
+content_role: summary
 minute_token: obcnxxxxxxxx
 source_url:
 source_created_at:
@@ -22,7 +24,6 @@ profile_name: PROFILE
 sync_status: synced
 created: YYYY-MM-DD
 updated: YYYY-MM-DD
-confidentiality: 待目标知识库规范确定
 ai_generated: false
 ---
 
@@ -65,6 +66,8 @@ type: transcript
 status: raw
 source: feishu-minutes
 source_id: obcnxxxxxxxx
+source_group_id: obcnxxxxxxxx
+content_role: transcript
 minute_token: obcnxxxxxxxx
 source_url:
 source_created_at:
@@ -74,7 +77,6 @@ profile_name: PROFILE
 sync_status: synced
 created: YYYY-MM-DD
 updated: YYYY-MM-DD
-confidentiality: 待目标知识库规范确定
 ai_generated: false
 ---
 

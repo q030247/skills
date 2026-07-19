@@ -197,17 +197,102 @@ def load_state(index_path: Path) -> Dict[str, Any]:
     return state
 
 
-def validate_local_states(state: Dict[str, Any], kb: Path) -> None:
+def portable_index_path(kb: Path, value: str, legacy_roots: Sequence[str], label: str) -> Tuple[Path, str]:
+    """Resolve an indexed path and normalize legacy absolute paths to KB-relative paths."""
+    raw = Path(value)
+    if not raw.is_absolute():
+        resolved = safe_path(kb, value, label)
+        return resolved, rel(kb, resolved)
+    roots = [kb, *(Path(root).expanduser().resolve() for root in legacy_roots)]
+    for root in roots:
+        try:
+            relative = raw.resolve().relative_to(root)
+            resolved = safe_path(kb, relative.as_posix(), label)
+            return resolved, relative.as_posix()
+        except ValueError:
+            continue
+    raise SyncError(
+        f"{label} is an absolute path from another device; pass its former knowledge-base root with --legacy-root: {value}"
+    )
+
+
+def path_has_prefix(value: str, prefixes: Sequence[str]) -> bool:
+    normalized = value.replace("\\", "/").strip("/")
+    return any(normalized == prefix.strip("/") or normalized.startswith(prefix.strip("/") + "/") for prefix in prefixes)
+
+
+def validate_local_states(
+    state: Dict[str, Any], kb: Path, legacy_roots: Sequence[str], skip_prefixes: Sequence[str]
+) -> None:
     for item in state.get("items", []):
         summary_value = str(item.get("summary_path") or "").strip()
         transcript_value = str(item.get("transcript_path") or "").strip()
         if not summary_value or not transcript_value:
             raise SyncError("index item is missing summary_path or transcript_path")
-        summary = safe_path(kb, summary_value, "summary_path")
-        transcript = safe_path(kb, transcript_value, "transcript_path")
+        summary, summary_relative = portable_index_path(kb, summary_value, legacy_roots, "summary_path")
+        transcript, transcript_relative = portable_index_path(kb, transcript_value, legacy_roots, "transcript_path")
+        item["summary_path"] = summary_relative
+        item["transcript_path"] = transcript_relative
+        if item.get("local_state") == "deleted" or item.get("pair_state") == "deleted":
+            item["local_state"] = "deleted"
+            item["pair_state"] = "deleted"
+            item["sync_action"] = "deleted"
+            continue
+        if path_has_prefix(summary_relative, skip_prefixes) or path_has_prefix(transcript_relative, skip_prefixes):
+            item["local_validation"] = "skipped"
+            continue
         present = int(summary.exists()) + int(transcript.exists())
         item["local_state"] = "present" if present == 2 else "partial" if present == 1 else "missing"
         item["pair_state"] = "complete" if present == 2 else "incomplete"
+        item["local_validation"] = "checked"
+
+
+def remote_metadata(item: Dict[str, Any]) -> Dict[str, str]:
+    return {
+        "source_url": first_value([item], ["url", "minute_url", "source_url"]),
+        "source_created_at": first_value([item], ["create_time", "created_at", "source_created_at", "start_time"]),
+        "source_updated_at": first_value([item], ["update_time", "updated_at", "source_updated_at", "modify_time"]),
+    }
+
+
+def time_key(value: str) -> Tuple[int, str]:
+    value = str(value or "").strip()
+    if not value:
+        return (0, "")
+    if value.isdigit():
+        stamp = int(value)
+        if stamp > 10_000_000_000:
+            stamp //= 1000
+        return (stamp, value)
+    try:
+        parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=now_local().tzinfo)
+        return (int(parsed.timestamp()), value)
+    except ValueError:
+        return (0, value)
+
+
+def compare_and_backfill(local: Dict[str, Any], remote: Dict[str, Any]) -> Tuple[bool, bool]:
+    """Return (metadata_backfilled, source_update_pending), never touching note content."""
+    metadata = remote_metadata(remote)
+    changed = False
+    for key in ("source_url", "source_created_at"):
+        if not local.get(key) and metadata[key]:
+            local[key] = metadata[key]
+            changed = True
+    remote_updated = metadata["source_updated_at"]
+    local_updated = str(local.get("source_updated_at") or "")
+    if not local_updated and remote_updated:
+        local["source_updated_at"] = remote_updated
+        local.pop("remote_source_updated_at", None)
+        local.pop("update_check", None)
+        return True, False
+    if remote_updated and time_key(remote_updated) > time_key(local_updated):
+        local["remote_source_updated_at"] = remote_updated
+        local["update_check"] = "pending"
+        return changed, True
+    return changed, local.get("update_check") == "pending"
 
 
 def clean_title(value: str, fallback: str) -> str:
@@ -309,18 +394,21 @@ def note_pair(
     artifacts = detail.get("artifacts") if isinstance(detail.get("artifacts"), dict) else {}
     common = [
         ("source", "feishu-minutes"), ("source_id", token), ("minute_token", token),
+        ("source_group_id", token),
         ("source_url", source_url), ("source_created_at", source_created),
         ("source_updated_at", source_updated), ("note_id", note_id),
         ("profile_name", args.profile), ("sync_status", "synced"),
         ("created", date), ("updated", now_local().date().isoformat()),
-        ("confidentiality", args.confidentiality), ("ai_generated", False),
+        ("ai_generated", False),
     ]
+    if args.confidentiality:
+        common.append(("confidentiality", args.confidentiality))
     summary_text = "\n\n".join([
         frontmatter([
             ("title", f"{date} {title} 智能纪要"),
             ("summary", "飞书妙记生成的智能纪要，需结合原始逐字稿复核。"),
             ("tags", ["飞书妙记", "会议纪要"]), ("type", args.summary_type),
-            ("status", args.status), *common,
+            ("status", args.status), ("content_role", "summary"), *common,
         ]),
         f"# {date} {title} 智能纪要",
         f"> 对应原始记录：[[{summary_link}]]",
@@ -335,7 +423,7 @@ def note_pair(
             ("title", f"{date} {title} 原始逐字稿"),
             ("summary", "飞书妙记的原始文字记录，结论待确认。"),
             ("tags", ["飞书妙记", "原始记录", "逐字稿"]), ("type", args.transcript_type),
-            ("status", args.status), *common,
+            ("status", args.status), ("content_role", "transcript"), *common,
         ]),
         f"# {date} {title} 原始逐字稿",
         f"> 对应智能纪要：[[{transcript_link}]]",
@@ -370,8 +458,8 @@ def table_for(state: Dict[str, Any]) -> str:
     for item in state.get("items", []):
         created = str(item.get("source_created_at") or "")
         token = str(item.get("minute_token") or "")
-        summary = Path(str(item.get("summary_path") or "")).stem
-        transcript = Path(str(item.get("transcript_path") or "")).stem
+        summary = Path(str(item.get("summary_path") or "")).with_suffix("").as_posix()
+        transcript = Path(str(item.get("transcript_path") or "")).with_suffix("").as_posix()
         lines.append(f"| {created} | `{token}` | [[{summary}]] | [[{transcript}]] | {item.get('pair_state', '')} |")
     return "\n".join(lines)
 
@@ -385,6 +473,8 @@ def index_text(args: argparse.Namespace, state: Dict[str, Any], existing: Option
             text = re.sub(re.escape(TABLE_START) + r".*?" + re.escape(TABLE_END), table_block, text, flags=re.S)
         else:
             text = text.rstrip() + "\n\n## 已同步妙记\n\n" + table_block + "\n"
+        text = re.sub(r"(?m)^updated:\s*.*$", f"updated: {now_local().date().isoformat()}", text, count=1)
+        text = re.sub(r"(?m)^profile_name:\s*.*$", f"profile_name: {json_scalar(args.profile)}", text, count=1)
         return text
     today = now_local().date().isoformat()
     return f"""---
@@ -396,7 +486,6 @@ status: active
 source: feishu-minutes
 created: {today}
 updated: {today}
-confidentiality: {json_scalar(args.confidentiality)}
 ai_generated: true
 index_version: 2
 identity_key: minute_token
@@ -438,23 +527,28 @@ def write_report(
     report_path: Path,
     added: List[Dict[str, Any]],
     skipped: int,
+    deleted_skipped: int,
+    metadata_backfilled: int,
+    updates_pending: List[Tuple[str, str, str]],
     failures: List[Tuple[str, str]],
     pending: List[str],
 ) -> None:
     lines = [
         "---",
         f"title: {json_scalar(now_local().date().isoformat() + ' 飞书妙记同步报告')}",
-        f"summary: {json_scalar(f'本次新增 {len(added)} 条、跳过 {skipped} 条、失败 {len(failures)} 条。')}",
+        f"summary: {json_scalar(f'本次新增 {len(added)} 条、跳过 {skipped} 条、来源更新待确认 {len(updates_pending)} 条、失败 {len(failures)} 条。')}",
         "tags: [飞书妙记, 同步报告]", "type: system", "status: active", "source: ai",
         f"created: {now_local().date().isoformat()}", f"updated: {now_local().date().isoformat()}",
-        f"confidentiality: {json_scalar(args.confidentiality)}", "ai_generated: true", "---", "",
+        "ai_generated: true", "---", "",
         f"# {now_local().date().isoformat()} 飞书妙记同步报告", "",
         "## 执行范围", "",
         f"- Profile：`{args.profile}`", f"- 查询时间：{args.start} 至 {args.end}",
         f"- 目标目录：`{rel(kb, safe_path(kb, args.target_dir, 'target_dir'))}`",
         "- 唯一键：`minute_token`", "",
         "## 统计", "",
-        f"- 新增：{len(added)}", f"- 跳过：{skipped}", f"- 失败：{len(failures)}", f"- 待确认：{len(pending)}", "",
+        f"- 新增：{len(added)}", f"- 跳过：{skipped}", f"- 已删除且永久跳过：{deleted_skipped}",
+        f"- 来源元数据回填：{metadata_backfilled}", f"- 来源更新待确认：{len(updates_pending)}",
+        f"- 失败：{len(failures)}", f"- 待确认：{len(pending) + len(updates_pending)}", "",
         "## 新增文件", "",
     ]
     for item in added:
@@ -464,6 +558,8 @@ def write_report(
         lines.append("- 无")
     for token, reason in failures:
         lines.append(f"- `{token}`：{reason}")
+    for token, local_time, remote_time in updates_pending:
+        lines.append(f"- `{token}`：来源更新时间由 `{local_time}` 变为 `{remote_time}`；未覆盖本地纪要，等待确认。")
     for value in pending:
         lines.append(f"- {value}")
     lines += ["", "## 安全检查", "", "- 未覆盖、移动或删除既有知识库文件。", "- 未向飞书之外的服务发送妙记内容。", ""]
@@ -481,8 +577,12 @@ def doctor(args: argparse.Namespace) -> int:
     except SyncError as exc:
         print(json.dumps({"ok": False, "cli_found": True, "version": version, "profile": args.profile, "auth_error": str(exc)}, ensure_ascii=False, indent=2))
         return EXIT_PRECONDITION
-    print(json.dumps({"ok": True, "cli_found": True, "version": version, "profile": args.profile, "auth": data_of(auth)}, ensure_ascii=False, indent=2))
-    return 0
+    auth_data = data_of(auth)
+    identities = auth_data.get("identities") if isinstance(auth_data.get("identities"), dict) else {}
+    user = identities.get("user") if isinstance(identities.get("user"), dict) else {}
+    verified = bool(auth_data.get("verified")) and bool(user.get("verified")) and bool(user.get("available"))
+    print(json.dumps({"ok": verified, "cli_found": True, "version": version, "profile": args.profile, "auth": auth_data}, ensure_ascii=False, indent=2))
+    return 0 if verified else EXIT_PRECONDITION
 
 
 def sync(args: argparse.Namespace) -> int:
@@ -497,15 +597,43 @@ def sync(args: argparse.Namespace) -> int:
     index_path = safe_path(kb, args.index_path, "index_path")
     report_path = safe_path(kb, args.report_path, "report_path")
     target.mkdir(parents=True, exist_ok=True)
+    existing_index = index_path.read_text(encoding="utf-8") if index_path.exists() else None
     state = load_state(index_path)
-    validate_local_states(state, kb)
+    validate_local_states(state, kb, args.legacy_root, args.skip_local_validation_prefix)
+    if not args.start:
+        watermark = str(state.get("last_successful_sync_at") or "")
+        if watermark:
+            try:
+                water_date = dt.datetime.fromisoformat(watermark.replace("Z", "+00:00")).astimezone().date()
+                args.start = (water_date - dt.timedelta(days=args.overlap_days)).isoformat()
+            except ValueError:
+                args.start = default_dates()[0]
+        else:
+            args.start = default_dates()[0]
     known = {token_of(item): item for item in state.get("items", [])}
     candidates = search_candidates(args, kb)
-    new_items = [item for item in candidates if token_of(item) not in known]
-    skipped = len(candidates) - len(new_items)
-    missing = [token for token, item in known.items() if item.get("local_state") != "present"]
-    if args.restore_missing and missing:
-        raise SyncError("restore_missing is intentionally not automated; remove or repair the index entry only after explicit review")
+    new_items: List[Dict[str, Any]] = []
+    skipped = 0
+    deleted_skipped = 0
+    metadata_backfilled = 0
+    updates_pending: List[Tuple[str, str, str]] = []
+    for candidate in candidates:
+        token = token_of(candidate)
+        local = known.get(token)
+        if local is None:
+            new_items.append(candidate)
+            continue
+        if local.get("local_state") == "deleted" or local.get("pair_state") == "deleted" or local.get("source_state") == "deleted":
+            deleted_skipped += 1
+            continue
+        old_updated = str(local.get("source_updated_at") or "")
+        backfilled, update_pending = compare_and_backfill(local, candidate)
+        metadata_backfilled += int(backfilled)
+        if update_pending:
+            updates_pending.append((token, old_updated, str(local.get("remote_source_updated_at") or "")))
+        else:
+            skipped += 1
+    missing = [token for token, item in known.items() if item.get("local_state") in ("partial", "missing")]
     if len(new_items) > args.batch_limit and not args.confirm_batch:
         preview = {"ok": False, "confirmation_required": True, "new_count": len(new_items), "batch_limit": args.batch_limit, "tokens": [token_of(x) for x in new_items[:args.batch_limit]]}
         print(json.dumps(preview, ensure_ascii=False, indent=2))
@@ -513,7 +641,6 @@ def sync(args: argparse.Namespace) -> int:
     added: List[Dict[str, Any]] = []
     failures: List[Tuple[str, str]] = []
     created_paths: List[Path] = []
-    existing_index = index_path.read_text(encoding="utf-8") if index_path.exists() else None
     with tempfile.TemporaryDirectory(prefix=".feishu-minutes-sync-", dir=str(kb)) as temp_dir:
         temp_rel = rel(kb, Path(temp_dir))
         for item in new_items[: args.batch_limit]:
@@ -535,8 +662,9 @@ def sync(args: argparse.Namespace) -> int:
                 added.append(record)
             except Exception as exc:
                 failures.append((token, str(exc)))
-    state["last_successful_sync_at"] = iso_now() if not failures else state.get("last_successful_sync_at")
+    state["last_successful_sync_at"] = iso_now() if not failures and not updates_pending and len(new_items) <= args.batch_limit else state.get("last_successful_sync_at")
     state["updated_at"] = iso_now()
+    state["last_profile_name"] = args.profile
     try:
         atomic_write(index_path, index_text(args, state, existing_index))
     except Exception:
@@ -544,10 +672,12 @@ def sync(args: argparse.Namespace) -> int:
             path.unlink(missing_ok=True)
         raise
     pending = [f"索引中的 `{token}` 本地配对文件不完整，未自动恢复。" for token in missing]
-    write_report(args, kb, report_path, added, skipped, failures, pending)
+    write_report(args, kb, report_path, added, skipped, deleted_skipped, metadata_backfilled, updates_pending, failures, pending)
     result = {
         "ok": not failures,
-        "added": len(added), "skipped": skipped, "failed": len(failures), "pending": len(pending),
+        "added": len(added), "skipped": skipped, "deleted_skipped": deleted_skipped,
+        "metadata_backfilled": metadata_backfilled, "source_updates_pending": len(updates_pending),
+        "failed": len(failures), "pending": len(pending) + len(updates_pending),
         "remaining_candidates": max(0, len(new_items) - args.batch_limit),
         "index": rel(kb, index_path), "report": rel(kb, report_path),
         "files": [{"summary": x["summary_path"], "transcript": x["transcript_path"]} for x in added],
@@ -568,14 +698,16 @@ def build_parser() -> argparse.ArgumentParser:
     sync_p.add_argument("--target-dir", default="feishu-minutes")
     sync_p.add_argument("--index-path", default="feishu-minutes/feishu-minutes-sync-index.md")
     sync_p.add_argument("--report-path", default=f"feishu-minutes/reports/{now_local().date().isoformat()}-feishu-minutes-sync-report.md")
-    start, end = default_dates()
-    sync_p.add_argument("--start", default=start)
+    _, end = default_dates()
+    sync_p.add_argument("--start", help="Defaults to the last successful watermark minus overlap-days, or 30 days ago for a new index.")
     sync_p.add_argument("--end", default=end)
+    sync_p.add_argument("--overlap-days", type=int, default=2)
     sync_p.add_argument("--scope", choices=["owned", "participated", "all-related"], default="all-related")
     sync_p.add_argument("--batch-limit", type=int, default=50)
     sync_p.add_argument("--confirm-batch", action="store_true", help="Confirm processing the first batch when candidates exceed the limit; never processes more than batch-limit.")
-    sync_p.add_argument("--restore-missing", action="store_true")
-    sync_p.add_argument("--confidentiality", default="待确认")
+    sync_p.add_argument("--legacy-root", action="append", default=[], help="Former device knowledge-base root used to convert legacy absolute index paths; repeatable.")
+    sync_p.add_argument("--skip-local-validation-prefix", action="append", default=[], help="KB-relative prefix whose indexed files must not be read; repeatable.")
+    sync_p.add_argument("--confidentiality", help="Optional legacy frontmatter field; omit when the target knowledge base does not use it.")
     sync_p.add_argument("--summary-type", default="meeting")
     sync_p.add_argument("--transcript-type", default="transcript")
     sync_p.add_argument("--status", default="raw")
