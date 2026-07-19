@@ -32,6 +32,7 @@ compatibility: 需要 Python 3、Node.js/npx、可读写的本地项目目录，
 - 同步只新增和去重。既有来源 ID 不重复创建；来源更新默认不覆盖本地文件，而是在报告中列为待确认，除非知识库规范明确允许更新 AI 来源区域。
 - 不删除、移动或自动归类同步结果。`local_state: deleted` / `pair_state: deleted` 是永久墓碑，继续参与去重且永不自动恢复或重新同步。
 - 每条妙记必须生成两个 Markdown：智能纪要与原始逐字稿。两者都成功写入后，才把该 token 登记为同步成功。
+- 新同步的原始逐字稿必须以`transcript_review_status: pending_review`进入人工校订闸门；同步技能不得替用户改成可提取状态，也不得改写原始文字记录。
 - 批量上限服从知识库规范；没有规范时每批最多 50 条。超过上限先展示范围、数量和风险，取得确认后分批执行。
 
 ## 1. 检查或安装 lark-cli
@@ -166,6 +167,8 @@ python3 <skill-dir>/scripts/sync_minutes.py sync \
    - 标题或日期无法确认时使用 token 短码，并在报告标记待确认。
 3. 按[笔记模板](references/note-templates.md)生成两个 Markdown。智能纪要原样保存飞书产出的 summary、todos、chapters、keywords，不把 Agent 的补充推断混入来源内容。逐字稿完整保存 `transcript_file` 内容，不自行总结或改写。
 4. 两文件都写入稳定来源字段：`source_id`、`source_group_id`、`content_role`、`minute_token`、`source_url`（若有）、`source_created_at`、`source_updated_at`、`note_id`（若有）、`profile_name`、`sync_status`。
+   - 原始逐字稿额外写入`transcript_review_status: pending_review`、空的`transcript_text_source`和空的`corrected_transcript`。
+   - 这些字段是知识库的人工校订状态，不属于飞书来源正文。后续同步不得覆盖用户已经修改的状态或校订稿链接。
 5. 智能纪要正文链接 `[[原始逐字稿文件名]]`；逐字稿正文链接 `[[智能纪要文件名]]`。使用不含 `.md` 的 Obsidian 双向链接。
 6. 先以临时文件准备两篇笔记，验证 YAML、必填字段、文件名和双链；再写入最终位置。若任一文件失败，删除本次尚未正式登记的临时文件，保留失败信息，不留下单边成功假象。
 7. 两篇都成功后才追加索引记录，`sync_status: synced`、`pair_state: complete`。不要把逐字稿临时 `.txt` 当作知识库最终产物。
@@ -191,5 +194,6 @@ python3 <skill-dir>/scripts/sync_minutes.py sync \
 - 知识库路径已明确，并已读取适用规范、目标目录说明和索引。
 - 每个成功 token 恰好对应一篇智能纪要和一篇原始逐字稿，且双链互指。
 - 两篇笔记均满足必填属性、命名与保密要求，原始逐字稿未被改写。
+- 新增原始逐字稿处于`pending_review`，没有被同步任务自动放行进行知识提取。
 - 索引无重复 token，失败或本地删除项没有伪装成成功。
 - 报告数量与实际文件及索引一致，并列出待确认项。
