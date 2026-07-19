@@ -75,6 +75,9 @@ source_updated_at:
 note_id:
 profile_name: PROFILE
 sync_status: synced
+transcript_review_status: pending_review
+transcript_text_source:
+corrected_transcript:
 created: YYYY-MM-DD
 updated: YYYY-MM-DD
 ai_generated: false
@@ -87,6 +90,9 @@ ai_generated: false
 ## 原始文字记录
 
 完整写入 lark-cli 返回的 transcript_file 内容，不总结、不修正、不补造。
+
+> [!warning] 人工校订闸门
+> 原始文字记录永久保留。检查无误后，将`transcript_review_status`改为`ready_for_extraction`并把`transcript_text_source`设为`original`；需要修正时另建人工校订稿，设为`corrected`并填写`corrected_transcript`链接。人工放行前不得进行后续提取。
 
 ## 来源
 

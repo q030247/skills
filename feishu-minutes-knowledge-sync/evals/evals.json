@@ -1,0 +1,47 @@
+{
+  "skill_name": "feishu-minutes-knowledge-sync",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "用 profile team-a 把最近 7 天我拥有或参与的飞书妙记同步到当前 Obsidian 知识库。每条要有智能纪要和原始逐字稿，不要覆盖已有内容。",
+      "expected_output": "检查 lark-cli 和 team-a profile 的用户授权，读取知识库规范后调用内置同步脚本；脚本分别查询 owned 与 participated、分页并按 token 去重，每个新 token 生成互相双链的两篇 Markdown，原始逐字稿默认 transcript_review_status: pending_review 且不能被自动放行，并在两篇都成功后更新索引和报告。",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "用 profile team-b 同步飞书妙记，但这是个普通代码项目，我没说知识库在哪里。",
+      "expected_output": "验证 CLI/profile 后，在访问妙记前暂停；展示当前目录绝对路径，让用户提供知识库路径或确认当前目录作为知识库，不擅自创建同步文件。",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "把飞书妙记同步到这个库，profile 是 team-c。索引里已经有一个 token，但对应逐字稿被我手动删了。",
+      "expected_output": "保留已有 token 和本地删除墓碑，永久跳过该 token；不读取详情、不重复创建文件，也不在后续运行中把它当作新内容。",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "我在一台新电脑上，指定 profile team-d 同步最近一个月的妙记；机器没有 lark-cli。",
+      "expected_output": "检查不到 lark-cli 后说明安装动作并按平台审批要求执行 npx @larksuite/cli@latest install；安装后重新验证版本、profile 和用户授权，未授权则走分轮授权。",
+      "files": []
+    },
+    {
+      "id": 5,
+      "prompt": "用 profile team-e 同步 2026 年上半年的全部飞书妙记到知识库。",
+      "expected_output": "把超过一个月的搜索拆分为月窗，分别查询 owner/participant 并分页去重；候选超过知识库批次上限时先展示数量和风险，确认后分批同步，每批生成报告。",
+      "files": []
+    },
+    {
+      "id": 6,
+      "prompt": "当前 AI 已选中 workspace-a，我同时输入了另一个知识库路径 workspace-b；如果两个都不可用就放到默认目录。",
+      "expected_output": "严格使用 selected-folder > user-input > default-folder 的顺序；workspace-a 存在时忽略 workspace-b，只有前两项都不存在时才创建当前执行目录下的默认知识库文件夹，并在报告中记录路径来源。",
+      "files": []
+    },
+    {
+      "id": 7,
+      "prompt": "同步进来的飞书逐字稿可能有人名和术语识别错误。先不要提炼，我会人工校订后再放行。",
+      "expected_output": "原始逐字稿保持不变并默认 transcript_review_status: pending_review；允许用户另建人工校订稿。只有用户手动设置 ready_for_extraction，同时明确使用 original 或提供有效的 corrected_transcript 后，后续流程才可提取闪念、候选待办、培训和知识。",
+      "files": []
+    }
+  ]
+}

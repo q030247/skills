@@ -440,11 +440,14 @@ def note_pair(
             ("title", f"{date} {title} 原始逐字稿"),
             ("summary", "飞书妙记的原始文字记录，结论待确认。"),
             ("tags", ["飞书妙记", "原始记录", "逐字稿"]), ("type", args.transcript_type),
-            ("status", args.status), ("content_role", "transcript"), *common,
+            ("status", args.status), ("content_role", "transcript"),
+            ("transcript_review_status", "pending_review"),
+            ("transcript_text_source", ""), ("corrected_transcript", ""), *common,
         ]),
         f"# {date} {title} 原始逐字稿",
         f"> 对应智能纪要：[[{transcript_link}]]",
         "## 原始文字记录\n\n" + transcript.rstrip(),
+        "> [!warning] 人工校订闸门\n> 原始文字记录永久保留。人工将`transcript_review_status`改为`ready_for_extraction`并明确`transcript_text_source`前，不得进行后续提取。",
         f"## 来源\n\n- 飞书妙记：{source_url or '未提供'}\n- 智能纪要：[[{transcript_link}]]",
     ]) + "\n"
     record = {
