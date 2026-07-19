@@ -12,7 +12,6 @@ status: active
 source: feishu-minutes
 created: YYYY-MM-DD
 updated: YYYY-MM-DD
-confidentiality: 待目标知识库规范确定
 ai_generated: true
 index_version: 2
 identity_key: minute_token
@@ -25,7 +24,8 @@ profile_name: PROFILE
 
 - 一个 minute token 对应一篇智能纪要和一篇原始逐字稿。
 - 两篇笔记都成功落盘后才登记为完整同步。
-- 已登记 token 不重复创建；本地删除默认不恢复。
+- 已登记 token 不重复创建；本地删除状态是永久墓碑，不自动恢复。
+- 所有本地路径保存为知识库相对路径，不保存设备相关的知识库绝对根目录。
 - 来源缺失不能直接推断来源已删除。
 
 <!-- FEISHU_MINUTES_SYNC_STATE:START -->

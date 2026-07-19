@@ -18,7 +18,7 @@ compatibility: 需要 Python 3、Node.js/npx、可读写的本地项目目录，
 - `knowledge_base`：可选，知识库文件夹；能从项目规则可靠识别时可省略。
 - `start` / `end`：可选，同步时间范围；首次未指定时默认最近 30 天，单次范围最长 1 个月。
 - `scope`：可选，`owned`、`participated` 或 `all-related`；默认 `all-related`，即“我拥有的”和“我参与的”两次查询取并集。
-- `restore_missing`：可选，默认 `false`；只有用户明确要求时才恢复本地已删除文件。
+- `skip_local_validation_prefix`：可选，不允许自动化读取的知识库相对目录前缀；索引继续参与去重，但不检查对应文件。
 
 缺少 `profile` 时暂停并询问，不猜测或自动选用其他 profile。缺少知识库时按“定位知识库”处理。
 
@@ -28,7 +28,7 @@ compatibility: 需要 Python 3、Node.js/npx、可读写的本地项目目录，
 - 不输出、保存或转发 appSecret、accessToken、device_code、Cookie 等凭据。
 - 妙记、客户、公司和个人内容只写入用户授权的本地目录，不发送到其他服务。
 - 同步只新增和去重。既有来源 ID 不重复创建；来源更新默认不覆盖本地文件，而是在报告中列为待确认，除非知识库规范明确允许更新 AI 来源区域。
-- 不删除、移动或自动归类同步结果。来源删除或本地文件缺失只在索引中保留状态。
+- 不删除、移动或自动归类同步结果。`local_state: deleted` / `pair_state: deleted` 是永久墓碑，继续参与去重且永不自动恢复或重新同步。
 - 每条妙记必须生成两个 Markdown：智能纪要与原始逐字稿。两者都成功写入后，才把该 token 登记为同步成功。
 - 批量上限服从知识库规范；没有规范时每批最多 50 条。超过上限先展示范围、数量和风险，取得确认后分批执行。
 
@@ -85,7 +85,7 @@ compatibility: 需要 Python 3、Node.js/npx、可读写的本地项目目录，
 1. 读取根目录 Agent 指令和运行手册。
 2. 读取它们指向的 schema、术语表、目标目录 README、主页或索引。
 3. 只在规则目录、模板目录、索引目录和候选目标目录搜索“飞书妙记、妙记、minutes、同步索引、逐字稿、会议纪要”；不默认扫描归档或正文全集。
-4. 提取目标目录、必填属性、文件命名、模板、索引位置、报告位置、批次上限、保密规则和 AI 可写边界。
+4. 提取目标目录、必填属性、文件命名、模板、索引位置、报告位置、批次上限、安全规则和 AI 可写边界。
 5. 冲突优先级：用户本轮要求 > 更接近目标目录的指令 > 知识库根规则 > 本技能默认值。
 
 规范存在时完全遵守。规范不存在时，将同步结果放在用户已指定的知识库/项目文件夹下的 `feishu-minutes/`，索引放在同目录，报告放在 `feishu-minutes/reports/`。不要顺便创建整套知识库规范。
@@ -94,7 +94,7 @@ compatibility: 需要 Python 3、Node.js/npx、可读写的本地项目目录，
 
 技能不内置开发者、制作者或某台机器上的知识库名称、用户名、绝对路径、组织名称、业务分类和固定目录。每次执行都从目标项目的规则文件与用户输入动态取得这些信息。
 
-若目标规范定义了收件箱、AI 报告区、归档排除目录、保密枚举或 `meeting` / `transcript` 类型，则按规范映射。若没有定义，才使用本技能的通用回退目录与模板，并将无法确认的保密级别标记为待确认，不根据会议内容猜测组织归属。
+若目标规范定义了收件箱、AI 报告区、归档排除目录或 `meeting` / `transcript` 类型，则按规范映射。若没有定义，才使用本技能的通用回退目录与模板。不得根据会议内容猜测组织归属。
 
 ## 5. 读取或创建 Markdown 索引
 
@@ -102,11 +102,12 @@ compatibility: 需要 Python 3、Node.js/npx、可读写的本地项目目录，
 2. 脚本使用 Markdown 中由注释标记包围的 JSON 状态区作为唯一机器台账，并自动生成用于人工核对的表格。若 token 重复、路径冲突、状态区损坏或旧索引没有受管标记，停止写入并标记待确认，不自动修复历史。
 3. 没有索引时，按[索引模板](references/index-template.md)创建。索引也必须满足知识库必填属性。
 4. 唯一键使用 `minute_token`，URL 只用于追溯。索引永不删除历史 token。
-5. 本地任一配对文件缺失时标记 `local_state: partial` 或 `missing`，默认不自动恢复；用户明确设置 `restore_missing: true` 才重建。
+5. 本地任一配对文件缺失时标记 `local_state: partial` 或 `missing`；已登记为 `deleted` 的来源包永久跳过，不提供自动恢复开关。
+6. 索引只保存知识库相对路径。遇到其他设备留下的绝对路径时，使用 `--legacy-root <旧设备知识库根目录>` 转换为相对路径；转换后不再保存旧设备根目录。
 
 ## 6. 调用内置同步脚本
 
-先从知识库规则解析目标目录、索引、报告、类型、状态与保密字段，然后从知识库根目录运行：
+先从知识库规则解析目标目录、索引、报告、类型、状态与禁止读取的目录，然后从知识库根目录运行：
 
 ```sh
 python3 <skill-dir>/scripts/sync_minutes.py doctor --profile <profile>
@@ -117,17 +118,17 @@ python3 <skill-dir>/scripts/sync_minutes.py sync \
   --target-dir <relative-target-dir> \
   --index-path <relative-index-path> \
   --report-path <relative-report-path> \
-  --start YYYY-MM-DD \
   --end YYYY-MM-DD \
+  --overlap-days 2 \
   --scope all-related \
   --batch-limit 50 \
-  --confidentiality <value> \
+  --skip-local-validation-prefix <relative-excluded-dir> \
   --summary-type meeting \
   --transcript-type transcript \
   --status raw
 ```
 
-所有写入路径必须位于 `knowledge-base-root` 内。目录参数优先使用相对路径；`knowledge-base-root` 可以是已确认的绝对路径。脚本只依赖 Python 标准库，不安装额外 Python 包。
+所有索引路径和目录参数使用知识库相对路径；只有本次运行的 `knowledge-base-root` 是当前设备上的绝对路径，并且不得写入同步索引。脚本只依赖 Python 标准库，不安装额外 Python 包。未显式提供 `--start` 时，脚本从上次成功水位向前重叠指定天数查询。
 
 `doctor` 返回非零时，按其 JSON 结果处理 CLI 缺失或授权问题，不继续同步。`sync` 的退出码：`0` 完成、`2` 前置条件失败、`3` 候选超过批次上限需确认、`4` 部分失败。退出码 `3` 后先向用户展示数量；获得确认后追加 `--confirm-batch`，脚本仍只处理第一批，不会突破 `--batch-limit`。
 
@@ -138,8 +139,9 @@ python3 <skill-dir>/scripts/sync_minutes.py sync \
 3. 默认 `all-related` 时分别查询 `--owner-ids me` 与 `--participant-ids me`，再按 token 取并集；不要把两个过滤器塞进一次请求中猜测语义。
 4. 单次时间范围最长 1 个月。更长范围拆为多个不重叠月窗。日期型 `--end` 包含当天整天。
 5. 遍历 `has_more` / `page_token`。累计候选超过知识库批次上限时停止并请求确认。
-6. token 已登记且两文件存在：跳过。token 已登记但本地标记删除：跳过，除非用户明确恢复。新 token：进入同步队列。
-7. 搜索结果缺少旧 token 不能证明来源已删除，不据此改删除状态。
+6. token 已登记且两文件存在：比较来源更新时间；无变化则跳过，较新则只写“来源更新待确认”，不覆盖本地内容。
+7. token 已登记且本地标记删除：永久跳过，不下载详情、不恢复、不反复报告为新内容。
+8. 旧记录缺少来源时间时，只回填索引元数据，不覆盖本地纪要；搜索结果缺少旧 token 不能证明来源已删除。
 
 ## 8. 脚本同步一条妙记的两个文件
 
@@ -159,14 +161,14 @@ python3 <skill-dir>/scripts/sync_minutes.py sync \
    - 原始逐字稿：`YYYY-MM-DD-主题-原始逐字稿.md`
    - 标题或日期无法确认时使用 token 短码，并在报告标记待确认。
 3. 按[笔记模板](references/note-templates.md)生成两个 Markdown。智能纪要原样保存飞书产出的 summary、todos、chapters、keywords，不把 Agent 的补充推断混入来源内容。逐字稿完整保存 `transcript_file` 内容，不自行总结或改写。
-4. 两文件都写入稳定来源字段：`source_id`、`minute_token`、`source_url`（若有）、`source_created_at`、`source_updated_at`、`note_id`（若有）、`profile_name`、`sync_status`。
+4. 两文件都写入稳定来源字段：`source_id`、`source_group_id`、`content_role`、`minute_token`、`source_url`（若有）、`source_created_at`、`source_updated_at`、`note_id`（若有）、`profile_name`、`sync_status`。
 5. 智能纪要正文链接 `[[原始逐字稿文件名]]`；逐字稿正文链接 `[[智能纪要文件名]]`。使用不含 `.md` 的 Obsidian 双向链接。
 6. 先以临时文件准备两篇笔记，验证 YAML、必填字段、文件名和双链；再写入最终位置。若任一文件失败，删除本次尚未正式登记的临时文件，保留失败信息，不留下单边成功假象。
 7. 两篇都成功后才追加索引记录，`sync_status: synced`、`pair_state: complete`。不要把逐字稿临时 `.txt` 当作知识库最终产物。
 
 ## 9. 更新索引与执行报告
 
-索引机器台账与正文人工核对表必须一致。每条记录至少包含 token、来源 URL、两个本地路径、来源时间、同步时间、配对状态和本地/来源状态。
+索引机器台账与正文人工核对表必须一致；脚本每次运行都从 JSON 状态区完整重建人工表格，包括 `deleted` 状态。每条记录至少包含 token、来源 URL、两个知识库相对路径、来源时间、同步时间、配对状态和本地/来源状态。
 
 每次执行都生成报告，至少包括：
 
