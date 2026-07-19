@@ -15,7 +15,9 @@ compatibility: 需要 Python 3、Node.js/npx、可读写的本地项目目录，
 开始前从用户输入或当前任务上下文取得：
 
 - `profile`：必填，lark-cli 配置名称。
-- `knowledge_base`：可选，知识库文件夹；能从项目规则可靠识别时可省略。
+- `selected_folder`：可选，当前 AI 平台已经选定的工作区或项目文件夹；存在时优先作为知识库。
+- `knowledge_base`：可选，用户输入的知识库路径；仅在当前没有选定文件夹时使用。
+- `default_folder`：可选，前两者都没有时使用；默认是当前执行目录下的 `feishu-minutes-knowledge-base/`。
 - `start` / `end`：可选，同步时间范围；首次未指定时默认最近 30 天，单次范围最长 1 个月。
 - `scope`：可选，`owned`、`participated` 或 `all-related`；默认 `all-related`，即“我拥有的”和“我参与的”两次查询取并集。
 - `skip_local_validation_prefix`：可选，不允许自动化读取的知识库相对目录前缀；索引继续参与去重，但不检查对应文件。
@@ -70,13 +72,13 @@ compatibility: 需要 Python 3、Node.js/npx、可读写的本地项目目录，
 
 ## 3. 定位知识库
 
-按证据从强到弱判断：
+严格按以下优先级选择，不把低优先级路径覆盖到高优先级路径：
 
-1. 用户本轮指定的 `knowledge_base`。
-2. 项目根目录的 `AGENTS.md`、`CLAUDE.md`、`AI-RUNBOOK.md`、`README.md` 或平台规则明确声明的知识库/vault 根目录。
-3. 当前目录本身具备知识库特征，且规范文件明确称其为知识库或 vault。
+1. 当前 AI 平台已选定的工作区、项目或文件夹，作为 `selected_folder`。
+2. 当前没有选定文件夹时，使用用户输入的 `knowledge_base`。
+3. 用户也没有输入时，使用 `default_folder`；默认创建当前执行目录下的 `feishu-minutes-knowledge-base/`。
 
-不要仅凭存在 Markdown 文件认定知识库。没有可靠证据时，展示当前目录的绝对路径，让用户选择“提供知识库路径”或“确认当前目录就是知识库”；确认前不读取飞书妙记、不创建同步文件。
+AI 平台仅打开了某个文件、不代表其父目录已被选为工作区；必须以平台实际提供的工作区或项目根目录为准。脚本在输出和报告中记录 `selected-folder`、`user-input` 或 `default-folder`，便于核对路径来源。
 
 路径必须在当前平台允许读写的范围内。相对路径以项目根目录解析，并在执行前回显最终绝对路径。
 
@@ -114,7 +116,9 @@ python3 <skill-dir>/scripts/sync_minutes.py doctor --profile <profile>
 
 python3 <skill-dir>/scripts/sync_minutes.py sync \
   --profile <profile> \
-  --knowledge-base <knowledge-base-root> \
+  --selected-folder <current-selected-folder> \
+  --knowledge-base <user-input-path-if-no-selected-folder> \
+  --default-folder feishu-minutes-knowledge-base \
   --target-dir <relative-target-dir> \
   --index-path <relative-index-path> \
   --report-path <relative-report-path> \
@@ -128,7 +132,7 @@ python3 <skill-dir>/scripts/sync_minutes.py sync \
   --status raw
 ```
 
-所有索引路径和目录参数使用知识库相对路径；只有本次运行的 `knowledge-base-root` 是当前设备上的绝对路径，并且不得写入同步索引。脚本只依赖 Python 标准库，不安装额外 Python 包。未显式提供 `--start` 时，脚本从上次成功水位向前重叠指定天数查询。
+只传实际存在的高优先级参数：有 `--selected-folder` 时可以省略 `--knowledge-base`；两者都没有时才使用 `--default-folder`。所有索引路径和目录参数使用知识库相对路径；当前设备解析后的绝对根目录只用于本次运行，不写入同步索引。脚本只依赖 Python 标准库，不安装额外 Python 包。
 
 `doctor` 返回非零时，按其 JSON 结果处理 CLI 缺失或授权问题，不继续同步。`sync` 的退出码：`0` 完成、`2` 前置条件失败、`3` 候选超过批次上限需确认、`4` 部分失败。退出码 `3` 后先向用户展示数量；获得确认后追加 `--confirm-batch`，脚本仍只处理第一批，不会突破 `--batch-limit`。
 

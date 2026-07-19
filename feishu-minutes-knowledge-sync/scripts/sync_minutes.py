@@ -64,6 +64,23 @@ def default_dates() -> Tuple[str, str]:
     return (today - dt.timedelta(days=29)).isoformat(), today.isoformat()
 
 
+def resolve_knowledge_base(args: argparse.Namespace) -> Tuple[Path, str]:
+    """Resolve KB by selected folder > user input > portable default folder."""
+    if args.selected_folder:
+        raw, source, create = args.selected_folder, "selected-folder", False
+    elif args.knowledge_base:
+        raw, source, create = args.knowledge_base, "user-input", False
+    else:
+        raw, source, create = args.default_folder, "default-folder", True
+    path = Path(raw).expanduser()
+    path = path.resolve() if path.is_absolute() else (Path.cwd() / path).resolve()
+    if create:
+        path.mkdir(parents=True, exist_ok=True)
+    if not path.is_dir():
+        raise SyncError(f"knowledge base from {source} does not exist or is not a directory: {path}")
+    return path, source
+
+
 def safe_path(root: Path, user_path: str, label: str) -> Path:
     candidate = Path(user_path)
     resolved = candidate.resolve() if candidate.is_absolute() else (root / candidate).resolve()
@@ -543,6 +560,7 @@ def write_report(
         f"# {now_local().date().isoformat()} 飞书妙记同步报告", "",
         "## 执行范围", "",
         f"- Profile：`{args.profile}`", f"- 查询时间：{args.start} 至 {args.end}",
+        f"- 知识库路径来源：`{args.knowledge_base_source}`",
         f"- 目标目录：`{rel(kb, safe_path(kb, args.target_dir, 'target_dir'))}`",
         "- 唯一键：`minute_token`", "",
         "## 统计", "",
@@ -590,9 +608,7 @@ def sync(args: argparse.Namespace) -> int:
     if not cli:
         raise SyncError("lark-cli not found; install with: npx @larksuite/cli@latest install")
     args.cli = cli
-    kb = Path(args.knowledge_base).resolve()
-    if not kb.is_dir():
-        raise SyncError(f"knowledge base does not exist or is not a directory: {kb}")
+    kb, args.knowledge_base_source = resolve_knowledge_base(args)
     target = safe_path(kb, args.target_dir, "target_dir")
     index_path = safe_path(kb, args.index_path, "index_path")
     report_path = safe_path(kb, args.report_path, "report_path")
@@ -678,6 +694,8 @@ def sync(args: argparse.Namespace) -> int:
         "added": len(added), "skipped": skipped, "deleted_skipped": deleted_skipped,
         "metadata_backfilled": metadata_backfilled, "source_updates_pending": len(updates_pending),
         "failed": len(failures), "pending": len(pending) + len(updates_pending),
+        "knowledge_base_source": args.knowledge_base_source,
+        "knowledge_base": str(kb),
         "remaining_candidates": max(0, len(new_items) - args.batch_limit),
         "index": rel(kb, index_path), "report": rel(kb, report_path),
         "files": [{"summary": x["summary_path"], "transcript": x["transcript_path"]} for x in added],
@@ -694,7 +712,9 @@ def build_parser() -> argparse.ArgumentParser:
     doctor_p.add_argument("--cli", default="lark-cli")
     sync_p = sub.add_parser("sync", help="Run deterministic incremental synchronization.")
     sync_p.add_argument("--profile", required=True)
-    sync_p.add_argument("--knowledge-base", required=True)
+    sync_p.add_argument("--selected-folder", help="Folder currently selected as the AI workspace/project; highest priority.")
+    sync_p.add_argument("--knowledge-base", help="Knowledge-base path supplied by the user; used only when no selected folder exists.")
+    sync_p.add_argument("--default-folder", default="feishu-minutes-knowledge-base", help="Portable fallback folder relative to the current working directory.")
     sync_p.add_argument("--target-dir", default="feishu-minutes")
     sync_p.add_argument("--index-path", default="feishu-minutes/feishu-minutes-sync-index.md")
     sync_p.add_argument("--report-path", default=f"feishu-minutes/reports/{now_local().date().isoformat()}-feishu-minutes-sync-report.md")
