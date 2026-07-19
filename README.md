@@ -6,11 +6,34 @@
 
 ## 已有技能
 
+### 外部来源同步
+
 | 技能 | 用途 | 主要能力 |
 |---|---|---|
-| [`douyin-favorites-sync`](./douyin-favorites-sync/) | 同步抖音收藏合集 | 判断浏览器能力和登录状态，通过页面原生请求采集收藏，按作品 ID 去重，输出 Markdown 表格并维护同步索引 |
-| [`feishu-minutes-knowledge-sync`](./feishu-minutes-knowledge-sync/) | 同步飞书妙记 | 检查 `lark-cli` 和用户授权，增量获取妙记，为每条记录生成互相双链的智能纪要与原始逐字稿 |
-| [`flomo-knowledge-sync`](./flomo-knowledge-sync/) | 同步 flomo 笔记 | 连接 flomo 官方 MCP，按 memo ID 增量同步到本地知识库，并生成同步索引与执行报告 |
+| [`douyin-favorites-sync`](./douyin-favorites-sync/) | 同步抖音收藏 | 探测浏览器能力与登录状态，通过页面原生请求采集收藏，按作品 ID 增量去重，维护同步索引并输出 Markdown 报告 |
+| [`xiaohongshu-favorites-sync`](./xiaohongshu-favorites-sync/) | 同步小红书收藏 | 使用可复用浏览器会话采集当前用户的收藏笔记，保留来源链接与作者信息，增量写入 Obsidian 收件箱和同步索引 |
+| [`feishu-minutes-knowledge-sync`](./feishu-minutes-knowledge-sync/) | 同步飞书妙记 | 通过 `lark-cli` 增量获取妙记，为每条记录生成互相双链的智能纪要与原始逐字稿，并维护来源索引与审核状态 |
+| [`flomo-knowledge-sync`](./flomo-knowledge-sync/) | 同步 flomo 笔记 | 连接 flomo 官方 MCP，按 memo ID 维护新增、更新、删除、迁移和版本历史，生成事务化同步报告 |
+
+### 飞书妙记处理
+
+| 技能 | 用途 | 主要能力 |
+|---|---|---|
+| [`feishu-minutes-daily-processing`](./feishu-minutes-daily-processing/) | 每日整理飞书妙记 | 按来源包去重，在人工逐字稿审核闸门通过后，提取决定、候选待办、业务线索、培训与知识建议 |
+| [`feishu-minutes-source-audit`](./feishu-minutes-source-audit/) | 审计妙记来源包 | 只读检查索引、智能纪要与逐字稿配对、相对路径、双链、校订稿和审核状态，不自动修复源文件 |
+| [`feishu-minutes-weekly-review`](./feishu-minutes-weekly-review/) | 飞书妙记周度复盘 | 汇总已完成每日处理的妙记，按业务隔离生成可追溯的知识、话术、培训、案例与规律增量建议 |
+
+### 浮墨处理
+
+| 技能 | 用途 | 主要能力 |
+|---|---|---|
+| [`flomo-daily-processing`](./flomo-daily-processing/) | 每日整理浮墨笔记 | 对已同步笔记执行多标签分流，生成闪念卡、候选待办、文章提炼卡和每日处理报告 |
+| [`flomo-weekly-review`](./flomo-weekly-review/) | 浮墨周度复盘 | 聚类本周闪念与文章概念，复核成熟度、候选任务转换状态和概念去重，生成周整理报告 |
+
+### 知识库治理
+
+| 技能 | 用途 | 主要能力 |
+|---|---|---|
 | [`obsidian-ai-growth-organizer`](./obsidian-ai-growth-organizer/) | 建设和整理 Obsidian 知识库 | 诊断知识库结构、初始化规则、分批整理笔记，并建立可审计、需要人工确认的 AI 自成长机制 |
 
 ## 目录结构
@@ -21,10 +44,11 @@
 skill-name/
 ├── SKILL.md          # 技能入口、触发条件和完整工作流
 ├── references/       # 按需读取的模板、规则和操作参考
+├── scripts/          # 可重复执行的同步、处理或审计脚本（部分技能提供）
 └── evals/            # 测试提示词与预期结果（部分技能提供）
 ```
 
-`SKILL.md` 是技能的唯一入口。`references/` 用于存放需要渐进加载的详细资料，避免主文件过长；`evals/` 用于验证技能在不同场景下能否正确执行。
+`SKILL.md` 是技能的唯一入口。`references/` 用于存放需要渐进加载的详细资料，避免主文件过长；`scripts/` 用于固化容易重复或出错的机械流程；`evals/` 用于验证技能在不同场景下能否正确执行。
 
 ## 使用方式
 
@@ -48,8 +72,12 @@ skill-name/
 技能安装并被 AI 工具识别后，可以直接描述目标，例如：
 
 - “把我的抖音收藏合集同步到当前 Obsidian 知识库。”
+- “把我的小红书收藏同步到 Obsidian 收件箱。”
 - “把最近一个月的飞书妙记同步到本地，并保留原始逐字稿。”
+- “审计飞书妙记来源包，再整理今天已经通过人工审核的妙记。”
+- “汇总本周飞书妙记，生成知识增量建议。”
 - “将 flomo 笔记增量同步到这个 Markdown 知识库。”
+- “整理今天的浮墨笔记，并在周末生成浮墨周复盘。”
 - “先诊断这个 Obsidian 库，再给我一份分批整理计划。”
 
 智能体应根据 `SKILL.md` 的描述自动选择相应技能；也可以在提示词中明确指定技能名称。
@@ -78,7 +106,8 @@ skill-name/
 1. 为技能创建独立文件夹。
 2. 在 `SKILL.md` 中提供清晰的名称、触发描述、依赖条件、执行流程和完成检查。
 3. 把较长的模板或平台差异放入 `references/`。
-4. 为登录失效、能力不足、重复数据和部分失败等边界场景准备测试用例。
-5. 检查技能中是否包含个人姓名、本机路径、账号、设备或其他不应公开的信息。
+4. 把稳定、机械且容易出错的步骤放入 `scripts/`，避免每次由智能体重新实现。
+5. 为登录失效、能力不足、重复数据和部分失败等边界场景准备测试用例。
+6. 检查技能中是否包含个人姓名、本机路径、账号、设备或其他不应公开的信息。
 
 本仓库中的技能会持续根据实际使用反馈迭代。修改技能时应保持通用性，避免只为单个示例增加难以复用的硬编码规则。
