@@ -1,0 +1,27 @@
+{
+  "skill_name": "feishu-minutes-source-audit",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "检查飞书同步索引：一个来源包只有智能纪要，另一个来源包的两个文件 source_group_id 不一致。",
+      "expected_output": "将两个问题列为 error，报告按来源包统计且不修改文件。",
+      "files": [],
+      "assertions": [
+        "发现缺少逐字稿的来源包",
+        "发现 source_group_id 冲突",
+        "审计过程只读"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "周检妙记来源包，其中一篇 ready_for_extraction 选择 corrected，但校订稿不存在；还有五篇 pending_review。",
+      "expected_output": "校订稿缺失为 error，pending_review 单独统计但不视为已处理。",
+      "files": [],
+      "assertions": [
+        "校订稿缺失被识别",
+        "等待人工检查与已处理分开统计",
+        "不读取逐字稿正文"
+      ]
+    }
+  ]
+}
