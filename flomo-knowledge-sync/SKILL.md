@@ -1,6 +1,6 @@
 ---
 name: flomo-knowledge-sync
-description: 将 flomo（浮墨）笔记通过官方 MCP 增量同步到当前项目指定的本地知识库，并把用户已勾选批准的浮墨候选待办转换为正式任务。只要用户提到“同步浮墨”“把 flomo 拉到本地/Obsidian/知识库”“生成浮墨正式待办”“转换已批准浮墨候选”“建立浮墨索引”“检查浮墨 MCP”或需要跨 Claude、ChatGPT、Codex、Cursor 等 AI 平台归档浮墨笔记，就应使用本技能；首次运行会读取 AGENTS.md、运行手册和 Schema 生成本地适配配置，随后按 memo ID 去重，维护新增、更新、删除、迁移、候选转换、版本历史和事务化 Markdown 报告。
+description: "通过 flomo 官方 MCP 将浮墨笔记增量同步到指定的 Obsidian 或 Markdown 知识库，并在每次同步（包括零新增）把用户已勾选批准的浮墨候选待办转换为正式 #task。用户提到‘同步浮墨’‘把 flomo 拉到本地’‘检查浮墨 MCP’‘建立浮墨索引’‘转换已批准浮墨候选’或‘生成浮墨正式待办’时，必须使用本技能。负责知识库自动适配、memo ID 去重、新增/更新/删除标记、版本历史、迁移索引闭环和同步报告；不负责从正文提取闪念或生成候选待办。"
 compatibility: 需要可读写本地项目文件，并能使用支持 Streamable HTTP 的 MCP 客户端连接 flomo 官方 MCP；首次连接可能需要用户完成 OAuth 或提供自行保管的 Token。
 ---
 
