@@ -14,6 +14,9 @@ sync_status: synced
 created: YYYY-MM-DD
 updated: YYYY-MM-DD
 tags: []
+capture_types: []
+ai_processing_status: unprocessed
+article_extraction_status: not_applicable
 ---
 
 # 可检索标题
@@ -21,6 +24,22 @@ tags: []
 ## 原始内容
 
 完整保留 flomo memo 的原始文字、标签、链接与媒体引用。
+
+<!-- AI:START -->
+## AI分流结果
+
+- 内容类型：待处理
+- 建议归属：待确认
+- 关联项目：待确认
+- 核心闪念：待处理
+- 文章链接及访问状态：待处理
+- 概念候选：待处理
+- 待确认：
+
+## 候选待办
+
+暂无。识别到行动后使用`#候选待办`和稳定`candidate_id`，不得直接添加`#task`。
+<!-- AI:END -->
 ```
 
 ## 更新边界
@@ -34,4 +53,4 @@ tags: []
 - `tags`中来自 flomo 的标签
 - `原始内容`章节
 
-保留模板以外已经存在的本地字段和章节。无法区分来源标签与本地标签时，不覆盖整个`tags`列表；合并并去重，同时在同步报告说明。
+保留`capture_types`、`ai_processing_status`、`article_extraction_status`和AI标记区，以及模板以外已经存在的本地字段和章节。无法区分来源标签与本地标签时，不覆盖整个`tags`列表；合并并去重，同时在同步报告说明。
