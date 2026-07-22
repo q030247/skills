@@ -42,6 +42,18 @@
       "prompt": "同步进来的飞书逐字稿可能有人名和术语识别错误。先不要提炼，我会人工校订后再放行。",
       "expected_output": "原始逐字稿保持不变并默认 transcript_review_status: pending_review；允许用户另建人工校订稿。只有用户手动设置 ready_for_extraction，同时明确使用 original 或提供有效的 corrected_transcript 后，后续流程才可提取闪念、候选待办、培训和知识。",
       "files": []
+    },
+    {
+      "id": 8,
+      "prompt": "用 profile team-a 同步飞书妙记。候选驾驶舱里有一条已勾选的 feishu 候选，建议正式位置唯一；另有一条未勾选候选。",
+      "expected_output": "完成来源同步后，只把已勾选且目标唯一的 feishu 候选写入正式位置，验证唯一后回写 promoted_to 和 promoted_at；未勾选候选保持不变，重复运行不重复创建。",
+      "files": []
+    },
+    {
+      "id": 9,
+      "prompt": "再次同步飞书妙记，远端没有任何新增，但本地有刚勾选的 feishu 候选待办。",
+      "expected_output": "即使零新增也执行本地候选转换；成功后报告正式任务目标和幂等标记，不生成新候选或内容提炼。",
+      "files": []
     }
   ]
 }

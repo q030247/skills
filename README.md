@@ -12,14 +12,14 @@
 |---|---|---|
 | [`douyin-favorites-sync`](./douyin-favorites-sync/) | 同步、补采或审计抖音收藏 | 复用已登录浏览器会话，通过页面原生请求增量采集收藏；按作品 ID 去重，维护索引、附件和 Markdown 报告 |
 | [`xiaohongshu-favorites-sync`](./xiaohongshu-favorites-sync/) | 同步当前用户的小红书收藏 | 采集收藏笔记及分组，保留标题、作者、链接和来源标识，增量写入知识库收件箱与同步索引 |
-| [`feishu-minutes-knowledge-sync`](./feishu-minutes-knowledge-sync/) | 将飞书妙记同步到本地知识库 | 通过 `lark-cli` 增量同步；为每条妙记生成关联的智能纪要与原始逐字稿，维护来源包、审核状态和索引 |
+| [`feishu-minutes-knowledge-sync`](./feishu-minutes-knowledge-sync/) | 同步飞书妙记，或转换已批准的飞书候选待办 | 通过 `lark-cli` 增量同步并维护配对来源包、审核状态和索引；每次同步（包括零新增）把已批准候选转换为正式 `#task` |
 | [`flomo-knowledge-sync`](./flomo-knowledge-sync/) | 同步浮墨，或转换已批准的浮墨候选待办 | 通过 flomo 官方 MCP 按 memo ID 同步新增、更新和删除标记；维护版本、迁移与索引，并在每次同步（包括零新增）把已批准候选转换为正式 `#task` |
 
 ### 飞书妙记处理
 
 | 技能 | 何时使用 | 主要能力 |
 |---|---|---|
-| [`feishu-minutes-daily-processing`](./feishu-minutes-daily-processing/) | 整理今天或指定范围内的飞书妙记 | 按来源包去重；只有人工逐字稿审核闸门通过后，才提取决定、候选待办、业务线索、培训与知识建议 |
+| [`feishu-minutes-daily-processing`](./feishu-minutes-daily-processing/) | 整理今天或指定范围内的飞书妙记 | 按来源包去重并执行人工逐字稿闸门；以多标签保留结论、决定、候选待办、业务线索、培训、知识和内容素材，并增加闪念、文章链接与其他类型 |
 | [`feishu-minutes-source-audit`](./feishu-minutes-source-audit/) | 检查妙记来源包和同步索引 | 只读审计智能纪要与逐字稿配对、相对路径、双链、校订稿和审核状态，不自动修复源文件 |
 | [`feishu-minutes-weekly-review`](./feishu-minutes-weekly-review/) | 汇总本周已完成每日处理的妙记 | 按业务边界生成可追溯的知识、话术、培训、案例与规律增量建议 |
 
@@ -66,12 +66,17 @@ flomo 官方 MCP
   → 智能纪要 + 原始逐字稿来源包
   → 人工审核逐字稿并放行
   → feishu-minutes-daily-processing
-  → 决定、候选待办、业务线索、培训与知识建议
+  → 结论、决定、候选待办、业务线索、培训、知识、内容素材、闪念与文章链接
+  → 用户勾选候选，表示批准转换
+  → 下一次 feishu-minutes-knowledge-sync（即使零新增也检查）
+  → 唯一所属项目或领域中的正式 #task
   → feishu-minutes-weekly-review
   → 周度知识增量建议
 ```
 
 逐字稿没有通过人工审核闸门时，处理技能不得从中提取结论或行动。
+
+飞书与浮墨采用相同的任务职责边界：日处理负责理解内容并生成候选，用户勾选表示批准，对应来源的同步技能负责幂等转换正式任务。飞书原有分类是能力下限，只能增加，不能因统一流程而减少；同一来源允许同时命中多个分类。
 
 ## 目录结构
 
@@ -109,6 +114,7 @@ skill-name/
 - “整理今天新增的浮墨，提取闪念和候选待办。”
 - “我已经勾选了浮墨候选，再同步一次并生成正式任务。”
 - “把最近一个月的飞书妙记同步到本地，并保留原始逐字稿。”
+- “我已经勾选了飞书候选，再同步一次并生成正式任务。”
 - “审计飞书妙记来源包，再整理已经通过人工审核的妙记。”
 - “同步我的抖音或小红书收藏到收件箱。”
 - “先诊断这个 Obsidian 库，再制定分批整理计划。”
