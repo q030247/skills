@@ -425,7 +425,9 @@ def note_pair(
             ("title", f"{date} {title} 智能纪要"),
             ("summary", "飞书妙记生成的智能纪要，需结合原始逐字稿复核。"),
             ("tags", ["飞书妙记", "会议纪要"]), ("type", args.summary_type),
-            ("status", args.status), ("content_role", "summary"), *common,
+            ("status", args.status), ("content_role", "summary"),
+            ("capture_types", []), ("ai_processing_status", "unprocessed"),
+            ("article_extraction_status", "not_applicable"), *common,
         ]),
         f"# {date} {title} 智能纪要",
         f"> 对应原始记录：[[{summary_link}]]",
@@ -434,6 +436,7 @@ def note_pair(
         "## 待办\n\n" + render_value(artifacts.get("todos")),
         "## 关键词\n\n" + render_value(artifacts.get("keywords")),
         f"## 来源\n\n- 飞书妙记：{source_url or '未提供'}\n- 原始逐字稿：[[{summary_link}]]",
+        "<!-- AI:START -->\n## AI处理区\n\n- 内容分类：待处理\n- 建议归属：待确认\n- 衍生结果：待处理\n<!-- AI:END -->",
     ]) + "\n"
     transcript_text = "\n\n".join([
         frontmatter([

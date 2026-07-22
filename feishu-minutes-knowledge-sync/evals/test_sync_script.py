@@ -109,6 +109,11 @@ class SyncScriptTest(unittest.TestCase):
             text = summary.read_text(encoding="utf-8")
             self.assertIn("[[", text)
             self.assertIn("source summary", text)
+            self.assertIn("capture_types: []", text)
+            self.assertIn('ai_processing_status: "unprocessed"', text)
+            self.assertIn('article_extraction_status: "not_applicable"', text)
+            self.assertIn("<!-- AI:START -->", text)
+            self.assertIn("<!-- AI:END -->", text)
         for transcript in transcripts:
             text = transcript.read_text(encoding="utf-8")
             self.assertIn("[[", text)

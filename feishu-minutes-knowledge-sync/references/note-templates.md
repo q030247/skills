@@ -22,6 +22,9 @@ source_updated_at:
 note_id:
 profile_name: PROFILE
 sync_status: synced
+capture_types: []
+ai_processing_status: unprocessed
+article_extraction_status: not_applicable
 created: YYYY-MM-DD
 updated: YYYY-MM-DD
 ai_generated: false
@@ -51,9 +54,17 @@ ai_generated: false
 
 - 飞书妙记：来源 URL（如有）
 - 原始逐字稿：[[YYYY-MM-DD-主题-原始逐字稿]]
+
+<!-- AI:START -->
+## AI处理区
+
+- 内容分类：待处理
+- 建议归属：待确认
+- 衍生结果：待处理
+<!-- AI:END -->
 ```
 
-`ai_generated: false` 表示本地文件是来源同步副本，不表示飞书智能总结由人工撰写。若目标知识库把所有机器生成内容统一标为 AI，可按其规范改为 `true`，并在正文注明内容来源为飞书。
+`ai_generated: false` 表示本地文件是来源同步副本，不表示飞书智能总结由人工撰写。若目标知识库把所有机器生成内容统一标为 AI，可按其规范改为 `true`，并在正文注明内容来源为飞书。`capture_types` 与 AI 受控区由每日处理维护；后续同步不得覆盖其已更新内容。
 
 ## 原始逐字稿
 
