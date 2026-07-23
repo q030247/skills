@@ -14,7 +14,7 @@
 - 来源明确删除时只标记，不物理删除本地文件。
 - 同时重建 Markdown 索引的 YAML、统计和人工核对表。
 - 笔记、索引与 Markdown 报告按同一批本地事务提交。
-- 通过迁移清单把已迁出收件箱的记录标记为`moved`。
+- 读取已经由`close-confirmed-inbox`更新为`moved`的索引记录并继续去重，但不执行归档或迁移登记。
 
 ## 输入
 
@@ -44,12 +44,6 @@ python3 scripts/flomo_sync.py --vault /path/to/vault --input /tmp/memos.json --a
 
 ```sh
 python3 scripts/flomo_sync.py --vault /path/to/vault --configure-only
-```
-
-迁移清单格式：
-
-```json
-{"relocations": [{"memo_id": "...", "local_path": "99-归档/浮墨/example.md", "destination_type": "archive"}]}
 ```
 
 恢复本地已删除笔记需要用户明确授权，并传入`--restore-deleted --apply`。脚本不负责 MCP 连接、OAuth 和 Token 管理，也不会向 flomo 写入内容。

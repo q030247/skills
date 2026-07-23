@@ -108,6 +108,17 @@ def yaml_value(value: Any) -> str:
     return str(value)
 
 
+STATE_LABELS = {
+    "active": "活跃 / Active", "raw": "原始 / Raw", "present": "存在 / Present",
+    "missing": "缺失 / Missing", "moved": "已迁移 / Moved", "deleted": "已删除标记 / Deleted",
+    "synced": "已同步 / Synced", "added": "新增 / Added", "updated": "已更新 / Updated",
+}
+
+
+def state_label(value: Any) -> str:
+    return STATE_LABELS.get(str(value or ""), f"待确认 / {value or 'Unknown'}")
+
+
 def render_index(meta: dict[str, Any], items: dict[str, dict[str, Any]], today: str) -> str:
     ordered = sorted(items.values(), key=lambda x: x.get("source_created_at") or "", reverse=True)
     counts = {action: sum(i.get("sync_action") == action for i in ordered) for action in ACTIONS}
@@ -118,6 +129,7 @@ def render_index(meta: dict[str, Any], items: dict[str, dict[str, Any]], today: 
         "tags: [浮墨, 同步, 去重]",
         "type: system",
         "status: active",
+        "status_label: 活跃 / Active",
         "source: flomo",
         f"created: {meta.get('created') or today}",
         f"updated: {today}",
@@ -135,11 +147,14 @@ def render_index(meta: dict[str, Any], items: dict[str, dict[str, Any]], today: 
     ]
     keys = [
         "source_url", "source_created_at", "source_updated_at", "local_path",
-        "local_state", "source_state", "sync_status", "sync_action",
+        "local_state", "local_state_label", "source_state", "source_state_label",
+        "sync_status", "sync_status_label", "sync_action", "sync_action_label",
         "is_deleted", "deleted_at", "moved_at", "destination_type",
         "revision_count", "synced_at",
     ]
     for item in ordered:
+        for state_key in ("local_state", "source_state", "sync_status", "sync_action"):
+            item.setdefault(f"{state_key}_label", state_label(item.get(state_key)))
         front.append(f"  - memo_id: {item['memo_id']}")
         for key in keys:
             front.append(f"    {key}: {yaml_value(item.get(key))}")
@@ -227,6 +242,7 @@ summary: 浮墨原始记录，内容待整理确认。
 tags: {tags}
 type: inbox
 status: raw
+status_label: 原始 / Raw
 source: flomo
 source_id: {memo['id']}
 source_url: {memo.get('url', '')}
@@ -253,10 +269,8 @@ updated: {updated}
 
 ## 处理结果
 
-- [ ] 转入项目
-- [ ] 转入领域或资源
-- [ ] 转为内容素材
-- [ ] 归档或删除
+- 建议归属：待确认 / Needs confirmation
+- 归档审批：未创建 / Not created
 """
 
 
@@ -290,44 +304,15 @@ def update_note(path: Path, memo: dict[str, Any], preserve_history: bool = True)
     return text
 
 
-def load_relocations(path: Optional[Path]) -> dict[str, dict[str, Any]]:
-    if path is None:
-        return {}
-    data = json.loads(path.read_text(encoding="utf-8"))
-    rows = data.get("relocations", data) if isinstance(data, dict) else data
-    if not isinstance(rows, list):
-        raise ValueError("Relocation manifest must be a list or contain relocations")
-    result: dict[str, dict[str, Any]] = {}
-    for row in rows:
-        memo_id = row.get("memo_id")
-        if not memo_id or not row.get("local_path"):
-            raise ValueError("Every relocation needs memo_id and local_path")
-        result[memo_id] = row
-    return result
-
-
 def build_plan(
     root: Path,
     target: Path,
     items: dict[str, dict[str, Any]],
     memos: list[dict[str, Any]],
     restore: bool,
-    relocations: Optional[dict[str, dict[str, Any]]] = None,
 ) -> list[dict[str, Any]]:
     plan: list[dict[str, Any]] = []
-    relocations = relocations or {}
     for item in items.values():
-        relocation = relocations.get(item["memo_id"])
-        if relocation:
-            destination = root / relocation["local_path"]
-            if not destination.is_file():
-                raise ValueError(f"Relocation destination does not exist: {destination}")
-            plan.append({
-                "action": "relocate", "id": item["memo_id"],
-                "path": item.get("local_path"), "new_path": relocation["local_path"],
-                "destination_type": relocation.get("destination_type", "other"),
-            })
-            continue
         local = root / str(item.get("local_path") or "")
         if not local.is_file() and item.get("local_state") not in {"missing", "moved"}:
             plan.append({"action": "mark_local_deleted", "id": item["memo_id"], "path": item.get("local_path")})
@@ -357,7 +342,6 @@ def render_report(result: dict[str, Any], index_path: str, target_dir: str, comp
         ("更新", counts.get("update", 0)),
         ("跳过", counts.get("skip", 0) + counts.get("skip_deleted", 0)),
         ("删除保持", counts.get("mark_local_deleted", 0) + counts.get("mark_source_deleted", 0)),
-        ("迁移登记", counts.get("relocate", 0)),
         ("失败", 0),
     ]
     mode = "精简" if compact else "完整"
@@ -428,7 +412,6 @@ def main() -> int:
     parser.add_argument("--profile")
     parser.add_argument("--report", help="Markdown report path inside vault")
     parser.add_argument("--result-json", type=Path, help="Optional machine-readable result JSON")
-    parser.add_argument("--relocate-manifest", type=Path)
     parser.add_argument("--configure-only", action="store_true")
     parser.add_argument("--restore-deleted", action="store_true")
     parser.add_argument("--apply", action="store_true", help="Write changes; default is dry-run")
@@ -464,8 +447,7 @@ def main() -> int:
     memos = load_memos(args.input)
     if len(memos) > int(profile.get("batch_limit", 50)):
         raise SystemExit(f"Refusing more than {profile.get('batch_limit', 50)} memos in one batch")
-    relocations = load_relocations(args.relocate_manifest)
-    plan = build_plan(root, target, items, memos, args.restore_deleted, relocations)
+    plan = build_plan(root, target, items, memos, args.restore_deleted)
     if profile_changed:
         plan.insert(0, {"action": "configure_profile", "id": "profile", "path": profile_rel})
     timestamp = now_iso()
@@ -486,11 +468,6 @@ def main() -> int:
                 continue
             item = next_items.get(op["id"])
             memo = by_id.get(op["id"])
-            if op["action"] == "relocate":
-                item.update(
-                    local_path=op["new_path"], local_state="moved", moved_at=timestamp,
-                    destination_type=op["destination_type"], sync_action="updated", synced_at=timestamp,
-                )
             item = items.get(op["id"])
             if op["action"] == "mark_local_deleted":
                 item = next_items[op["id"]]
@@ -502,8 +479,10 @@ def main() -> int:
                     "memo_id": memo["id"], "source_url": memo.get("url", ""),
                     "source_created_at": memo["created_at"],
                     "source_updated_at": memo.get("updated_at", memo["created_at"]),
-                    "local_path": op["path"], "local_state": "present", "source_state": "present",
-                    "sync_status": "synced", "sync_action": "added", "is_deleted": False,
+                    "local_path": op["path"], "local_state": "present", "local_state_label": "存在 / Present",
+                    "source_state": "present", "source_state_label": "存在 / Present",
+                    "sync_status": "synced", "sync_status_label": "已同步 / Synced",
+                    "sync_action": "added", "sync_action_label": "新增 / Added", "is_deleted": False,
                     "deleted_at": None, "moved_at": None, "destination_type": None,
                     "revision_count": 0, "synced_at": timestamp, "attachments": [],
                 }
@@ -511,11 +490,11 @@ def main() -> int:
                 path = root / op["path"]
                 item = next_items[op["id"]]
                 writes[path] = update_note(path, memo, bool(profile.get("preserve_source_history", True)))
-                item.update(source_url=memo.get("url", ""), source_updated_at=memo.get("updated_at", memo["created_at"]), sync_action="updated", synced_at=timestamp)
+                item.update(source_url=memo.get("url", ""), source_updated_at=memo.get("updated_at", memo["created_at"]), sync_action="updated", sync_action_label="已更新 / Updated", synced_at=timestamp)
                 item["revision_count"] = int(item.get("revision_count") or 0) + 1
             elif op["action"] == "mark_source_deleted":
                 item = next_items[op["id"]]
-                item.update(source_state="deleted", sync_action="deleted", is_deleted=True, deleted_at=timestamp, synced_at=timestamp)
+                item.update(source_state="deleted", source_state_label="已删除标记 / Deleted", sync_action="deleted", sync_action_label="已删除标记 / Deleted", is_deleted=True, deleted_at=timestamp, synced_at=timestamp)
         meta["last_successful_sync_at"] = timestamp
         writes[index_path] = render_index(meta, next_items, timestamp[:10])
         if profile_changed:
@@ -524,7 +503,7 @@ def main() -> int:
         report_path = (root / args.report).resolve() if args.report else report_dir / report_name
         if root != report_path and root not in report_path.parents:
             raise SystemExit("Report must stay inside vault")
-        substantive = {"add", "restore", "update", "mark_local_deleted", "mark_source_deleted", "relocate"}
+        substantive = {"add", "restore", "update", "mark_local_deleted", "mark_source_deleted"}
         compact = not any(op["action"] in substantive for op in plan)
         writes[report_path] = render_report(result, index_rel, target_rel, compact)
         atomic_commit(writes)

@@ -98,6 +98,7 @@ summary: 根据当前知识库规则自动生成的浮墨同步适配配置。
 tags: [浮墨, 同步, 配置]
 type: system
 status: active
+status_label: 活跃 / Active
 source: ai
 created: {today}
 updated: {today}
@@ -128,11 +129,12 @@ migration_requires_manifest: true
 - 单批上限：{profile['batch_limit']}
 - 写入 confidentiality：{'是' if profile['include_confidentiality'] else '否'}
 - 保存来源更新历史：{'是' if profile['preserve_source_history'] else '否'}
-- 启用收件箱迁移闭环：{'是' if profile['inbox_lifecycle'] else '否'}
+- 收件箱生命周期规则存在：{'是' if profile['inbox_lifecycle'] else '否'}
+- 归档执行技能：`close-confirmed-inbox`
 
 ## 维护规则
 
 - `knowledge_base_fingerprint`变化时，先重新读取规则并刷新本配置，再执行同步。
 - 人工可以复核配置，但不要在不理解影响时修改机器字段。
-- 迁出收件箱必须通过迁移清单更新同步索引，不把已迁移文件误判为删除。
+- 同步脚本不执行归档；迁出收件箱与索引闭环必须通过`close-confirmed-inbox`的统一审批门槛。
 """

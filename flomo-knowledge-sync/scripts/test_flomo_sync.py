@@ -117,7 +117,13 @@ items:
             profile = vault / "00-收件箱/浮墨笔记/浮墨同步配置.md"
             self.assertIn("include_confidentiality: false", profile.read_text(encoding="utf-8"))
             note = next((vault / "00-收件箱/浮墨笔记").glob("2026-*.md"))
-            self.assertNotIn("confidentiality:", note.read_text(encoding="utf-8"))
+            note_text = note.read_text(encoding="utf-8")
+            self.assertNotIn("confidentiality:", note_text)
+            self.assertIn("status: raw", note_text)
+            self.assertIn("status_label: 原始 / Raw", note_text)
+            index_text = (vault / "00-收件箱/浮墨笔记/浮墨同步索引.md").read_text(encoding="utf-8")
+            self.assertIn("local_state_label: 存在 / Present", index_text)
+            self.assertIn("sync_status_label: 已同步 / Synced", index_text)
 
     def test_source_update_keeps_previous_original(self):
         memo = {
@@ -137,29 +143,6 @@ items:
             self.assertIn("## 原始内容\n\n新原文", text)
             self.assertIn("## 来源更新历史", text)
             self.assertIn("旧原文", text)
-
-    def test_relocation_updates_index_without_marking_deleted(self):
-        memo = {
-            "id": "memo-7", "content": "迁移来源", "content_truncated": False,
-            "created_at": "2026-07-19T11:00:00+08:00", "updated_at": "2026-07-19T11:00:00+08:00",
-            "url": "https://example.invalid/memo-7", "tags": [],
-        }
-        with tempfile.TemporaryDirectory() as tmp:
-            vault = Path(tmp)
-            self.run_sync(vault, {"memos": [memo]}, apply=True)
-            note = next((vault / "00-收件箱/浮墨笔记").glob("2026-*.md"))
-            destination = vault / "99-归档/浮墨/source.md"
-            destination.parent.mkdir(parents=True)
-            note.rename(destination)
-            manifest = vault / "relocations.json"
-            manifest.write_text(json.dumps({"relocations": [{
-                "memo_id": "memo-7", "local_path": "99-归档/浮墨/source.md", "destination_type": "archive"
-            }]}), encoding="utf-8")
-            self.run_sync(vault, {"memos": []}, apply=True, extra=["--relocate-manifest", str(manifest)])
-            index = (vault / "00-收件箱/浮墨笔记/浮墨同步索引.md").read_text(encoding="utf-8")
-            self.assertIn("local_state: moved", index)
-            self.assertIn("local_path: 99-归档/浮墨/source.md", index)
-            self.assertNotIn("local_state: missing", index)
 
     def test_report_failure_does_not_create_note_or_advance_index(self):
         memo = {

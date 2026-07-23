@@ -11,12 +11,15 @@ source_url: https://v.flomoapp.com/mine/?memo_id=stable-memo-id
 source_created_at: YYYY-MM-DDTHH:mm:ssZ
 source_updated_at: YYYY-MM-DDTHH:mm:ssZ
 sync_status: synced
+sync_status_label: 已同步 / Synced
 created: YYYY-MM-DD
 updated: YYYY-MM-DD
 tags: []
 capture_types: []
 ai_processing_status: unprocessed
+ai_processing_status_label: 未处理 / Unprocessed
 article_extraction_status: not_applicable
+article_extraction_status_label: 不适用 / Not applicable
 ---
 
 # 可检索标题
