@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import gzip
 import hashlib
 import html
 import json
@@ -123,6 +124,26 @@ def timestamp_text(value: Any) -> str:
         return ""
 
 
+def video_location_text(item: dict[str, Any]) -> str:
+    poi = item.get("poi_info") if isinstance(item.get("poi_info"), dict) else {}
+    address = poi.get("address_info")
+    if isinstance(address, dict):
+        address = first_nonempty(
+            address.get("formatted_address"),
+            address.get("address"),
+            address.get("simple_addr"),
+            address.get("city"),
+        )
+    return str(first_nonempty(
+        poi.get("poi_name"),
+        address,
+        nested(poi, "city_info", "city_name"),
+        item.get("ip_attribution"),
+        item.get("ip_location"),
+        "",
+    ))
+
+
 def normalize(item: dict[str, Any], collection: str, captured_at: str) -> dict[str, Any] | None:
     aweme_id = str(item.get("aweme_id") or "").strip()
     if not aweme_id:
@@ -135,6 +156,7 @@ def normalize(item: dict[str, Any], collection: str, captured_at: str) -> dict[s
     statistics = item.get("statistics") if isinstance(item.get("statistics"), dict) else {}
     cover_url = first_url(first_nonempty(nested(item, "video", "cover"), nested(item, "video", "origin_cover")))
     duration = first_nonempty(item.get("duration"), nested(item, "video", "duration"))
+    video_location = video_location_text(item)
     record = {
         "aweme_id": aweme_id,
         "title": str(first_nonempty(item.get("desc"), item.get("title"), "待确认")),
@@ -149,6 +171,7 @@ def normalize(item: dict[str, Any], collection: str, captured_at: str) -> dict[s
         "shares": first_nonempty(statistics.get("share_count"), ""),
         "collects": first_nonempty(statistics.get("collect_count"), ""),
         "tags": hashtags(item),
+        "video_location": video_location,
         "cover_url": cover_url,
         "share_url": str(share_url),
         "douyin_url": f"https://www.douyin.com/{'note' if item.get('aweme_type') == 68 else 'video'}/{quote(aweme_id)}",
@@ -194,15 +217,34 @@ def merge_records(old: dict[str, Any], new: dict[str, Any], *, prefer_new: bool)
 
 def load_index(path: Path) -> dict[str, Any]:
     if not path.exists():
-        return {"schema_version": 1, "items": {}, "last_successful_full_sync_at": None}
+        return {"schema_version": 2, "last_successful_full_sync_at": None}
     text = path.read_text(encoding="utf-8")
-    pattern = re.escape(INDEX_START) + r"\s*```json\s*(.*?)\s*```\s*" + re.escape(INDEX_END)
-    match = re.search(pattern, text, re.DOTALL)
-    if not match:
+    managed = re.search(
+        re.escape(INDEX_START) + r"(.*?)" + re.escape(INDEX_END),
+        text,
+        re.DOTALL,
+    )
+    if not managed:
         raise ValueError(f"Existing index has no managed JSON block: {path}")
-    data = json.loads(match.group(1))
-    if not isinstance(data.get("items"), dict):
-        raise ValueError("Index items must be an object keyed by aweme_id")
+    block = re.search(r"```json\s*(.*?)\s*```", managed.group(1), re.DOTALL)
+    if not block:
+        raise ValueError(f"Existing index has no JSON metadata block: {path}")
+    # Legacy Markdown indexes may contain raw control characters inside long
+    # source strings. Accept them only during migration; newly written state
+    # is serialized as strict JSON.
+    data = json.loads(block.group(1), strict=False)
+    if not isinstance(data, dict):
+        raise ValueError("Index metadata must be a JSON object")
+    return data
+
+
+def load_state(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {"schema_version": 2, "items": {}}
+    with gzip.open(path, "rt", encoding="utf-8") as handle:
+        data = json.load(handle)
+    if not isinstance(data, dict) or not isinstance(data.get("items"), dict):
+        raise ValueError(f"Invalid compressed state file: {path}")
     return data
 
 
@@ -249,22 +291,29 @@ def read_manual_fields(path: Path) -> dict[str, dict[str, str]]:
         return {}
     lines = path.read_text(encoding="utf-8").splitlines()
     result: dict[str, dict[str, str]] = {}
-    header_index = next(
-        (index for index, line in enumerate(lines) if line.startswith("| 序号 | 作品 ID | 标题/描述 |")),
-        None,
-    )
+    header_index = next((index for index, line in enumerate(lines) if line.startswith("| 序号 | 作品 ID | 标题/描述 |")), None)
     if header_index is None:
+        return result
+    header = split_md_row(lines[header_index])
+    positions = {name: index for index, name in enumerate(header)}
+    id_index = positions.get("作品 ID")
+    why_index = positions.get("为什么收藏")
+    supports_index = positions.get("支持什么决策/输出")
+    if id_index is None or why_index is None or supports_index is None:
         return result
     for line in lines[header_index + 2:]:
         if not line.startswith("|"):
             break
         cells = split_md_row(line)
-        if len(cells) < 15:
+        if max(id_index, why_index, supports_index) >= len(cells):
             continue
-        aweme_id = cells[1].strip()
+        aweme_id = cells[id_index].strip()
         if not aweme_id:
             continue
-        values = {"why_saved": cells[12].strip(), "supports_output": cells[13].strip()}
+        values = {
+            "why_saved": cells[why_index].strip(),
+            "supports_output": cells[supports_index].strip(),
+        }
         result[aweme_id] = {
             key: value for key, value in values.items() if value not in ("", "—", "待确认")
         }
@@ -286,18 +335,19 @@ def markdown_body(records: list[dict[str, Any]], collection: str, stats: dict[st
         f"| 当前捕获唯一数 | {stats['captured_unique']} |",
         f"| 索引原有数 | {stats['indexed_before']} |",
         f"| 合并唯一数 | {stats['union_unique']} |",
-        f"| 完整性 | {stats['completeness']} |",
+        f"| 完整性 | {stats['completeness_label']} |",
         f"| 本次变更 | 新增 {stats['added']} / 更新 {stats['updated']} / 跳过 {stats['skipped']} |",
         "", "## 收藏列表", "",
-        "| 序号 | 作品 ID | 标题/描述 | 作者 | 发布时间 | 时长(ms) | 类型 | 点赞 | 评论 | 分享 | 收藏 | 话题 | 为什么收藏 | 支持什么决策/输出 | 作品链接 |",
-        "|---:|---|---|---|---|---:|---|---:|---:|---:|---:|---|---|---|---|",
+        "| 序号 | 作品 ID | 标题/描述 | 作者 | 发布时间 | 时长(ms) | 类型 | 点赞 | 评论 | 分享 | 收藏 | 话题 | 视频位置 | 为什么收藏 | 支持什么决策/输出 | 作品链接 |",
+        "|---:|---|---|---|---|---:|---|---:|---:|---:|---:|---|---|---|---|---|",
     ]
     for index, record in enumerate(records, 1):
         lines.append("| " + " | ".join([
             str(index), md_cell(record["aweme_id"]), md_cell(record["title"]), md_cell(record["author"]),
             md_cell(record["create_time"]), md_cell(record["duration_ms"]), md_cell(record["aweme_type"]),
             md_cell(record["likes"]), md_cell(record["comments"]), md_cell(record["shares"]),
-            md_cell(record["collects"]), md_cell(record["tags"]), md_cell(record["why_saved"]),
+            md_cell(record["collects"]), md_cell(record["tags"]), md_cell(record.get("video_location")),
+            md_cell(record["why_saved"]),
             md_cell(record["supports_output"]), md_link("打开", record["douyin_url"]),
         ]) + " |")
     lines.extend([
@@ -339,6 +389,20 @@ def atomic_write(path: Path, text: str) -> None:
     os.replace(temp_name, path)
 
 
+def atomic_write_gzip(path: Path, data: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile("wb", dir=path.parent, delete=False) as raw:
+        temp_name = raw.name
+    try:
+        with gzip.open(temp_name, "wt", encoding="utf-8", compresslevel=9) as handle:
+            json.dump(data, handle, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+        os.replace(temp_name, path)
+    except Exception:
+        if os.path.exists(temp_name):
+            os.unlink(temp_name)
+        raise
+
+
 def render_document(title: str, collection: str, body: str, synced_at: str) -> str:
     date = synced_at[:10]
     frontmatter = (
@@ -346,10 +410,10 @@ def render_document(title: str, collection: str, body: str, synced_at: str) -> s
         f"title: {json.dumps(title, ensure_ascii=False)}\n"
         f"summary: {json.dumps(f'抖音收藏合集的本地增量同步表，最近同步于 {synced_at}。', ensure_ascii=False)}\n"
         "tags: [抖音收藏, 收件箱]\n"
-        "type: inbox\nstatus: raw\nsource: douyin\n"
+        "type: inbox\nstatus: raw\nstatus_label: 原始 / Raw\nsource: douyin\n"
         f"source_collection: {json.dumps(collection or '未指定', ensure_ascii=False)}\n"
         f"created: {date}\nupdated: {date}\n"
-        "confidentiality: personal\nai_generated: true\n---\n\n"
+        "ai_generated: true\n---\n\n"
         f"# {title}\n\n"
     )
     return frontmatter + AI_START + "\n" + body.rstrip() + "\n" + AI_END + "\n"
@@ -360,6 +424,12 @@ def main() -> int:
     parser.add_argument("inputs", nargs="+", type=Path, help="Captured JSON files")
     parser.add_argument("--output", required=True, type=Path, help="Markdown favorites list")
     parser.add_argument("--index", required=True, type=Path, help="Managed Markdown sync index")
+    parser.add_argument(
+        "--state",
+        type=Path,
+        default=None,
+        help="Compressed machine state; defaults beside the Markdown index",
+    )
     parser.add_argument("--report", required=True, type=Path, help="Markdown execution report")
     parser.add_argument("--collection", default="", help="Collection name")
     parser.add_argument("--displayed-total", type=int, default=None)
@@ -379,7 +449,40 @@ def main() -> int:
             )
 
     index = load_index(args.index)
-    existing = index["items"]
+    state_path = args.state or args.index.with_name(f"{args.index.stem}.state.json.gz")
+    if state_path.exists():
+        state = load_state(state_path)
+    else:
+        legacy_items = index.pop("items", {})
+        if legacy_items and not isinstance(legacy_items, dict):
+            raise ValueError("Legacy index items must be keyed by aweme_id")
+        state = {"schema_version": 2, "items": legacy_items or {}}
+    index.pop("items", None)
+    existing = state["items"]
+    action_labels = {
+        "added": "新增 / Added",
+        "updated": "已更新 / Updated",
+        "skipped": "已跳过 / Skipped",
+        "deleted": "已删除标记 / Deleted",
+    }
+    state_labels = {
+        "present": "存在 / Present",
+        "missing": "缺失 / Missing",
+        "moved": "已迁移 / Moved",
+        "deleted": "已删除标记 / Deleted",
+    }
+    for entry in existing.values():
+        if not isinstance(entry, dict):
+            continue
+        action = entry.get("sync_action")
+        if action:
+            entry["sync_action_label"] = action_labels.get(action, "待确认 / Needs confirmation")
+        local_state = entry.get("local_state")
+        if local_state:
+            entry["local_state_label"] = state_labels.get(local_state, "待确认 / Needs confirmation")
+        source_state = entry.get("source_state")
+        if source_state:
+            entry["source_state_label"] = state_labels.get(source_state, "待确认 / Needs confirmation")
     for aweme_id, fields in read_manual_fields(args.output).items():
         entry = existing.get(aweme_id)
         if not isinstance(entry, dict) or not isinstance(entry.get("record"), dict):
@@ -406,8 +509,15 @@ def main() -> int:
             skipped += 1
         existing[aweme_id] = {
             "sync_action": action,
+            "sync_action_label": {
+                "added": "新增 / Added",
+                "updated": "已更新 / Updated",
+                "skipped": "已跳过 / Skipped",
+            }[action],
             "local_state": "present",
+            "local_state_label": "存在 / Present",
             "source_state": "present",
+            "source_state_label": "存在 / Present",
             "last_seen_at": synced_at,
             "record": merged,
         }
@@ -428,10 +538,17 @@ def main() -> int:
     elif displayed_total is not None and union_unique < displayed_total:
         completeness = "partial"
     else:
-        completeness = "待确认"
+        completeness = "needs_confirmation"
+    completeness_label = {
+        "complete": "完整 / Complete",
+        "partial": "部分完成 / Partial",
+        "needs_confirmation": "待确认 / Needs confirmation",
+    }[completeness]
     index.update({
-        "schema_version": 1,
+        "schema_version": 2,
         "updated_at": synced_at,
+        "state_file": os.path.relpath(state_path, args.index.parent),
+        "record_count": union_unique,
         "last_run": {
             "displayed_total": displayed_total,
             "captured_unique": len(current),
@@ -439,6 +556,7 @@ def main() -> int:
             "union_unique": union_unique,
             "page_complete": page_complete,
             "completeness": completeness,
+            "completeness_label": completeness_label,
         },
     })
     stats = {
@@ -454,16 +572,27 @@ def main() -> int:
     else:
         output_text = render_document(title, args.collection, output_body, synced_at)
 
+    state.update({"schema_version": 2, "updated_at": synced_at, "items": existing})
     index_json = json.dumps(index, ensure_ascii=False, indent=2, sort_keys=True)
-    index_block = f"```json\n{index_json}\n```"
+    index_block = (
+        f"```json\n{index_json}\n```\n\n"
+        "## 最近一次同步\n\n"
+        "| 项目 | 内容 |\n|---|---|\n"
+        f"| 更新时间 | {synced_at} |\n"
+        f"| 压缩状态文件 | `{md_cell(index['state_file'])}` |\n"
+        f"| 记录数 | {union_unique} |\n"
+        f"| 当前捕获唯一数 | {len(current)} |\n"
+        f"| 新增 / 更新 / 跳过 | {added} / {updated} / {skipped} |\n"
+        f"| 完整性 | {completeness_label} |\n"
+    )
     if args.index.exists():
         index_text = replace_managed(args.index.read_text(encoding="utf-8"), INDEX_START, INDEX_END, index_block)
     else:
         date = synced_at[:10]
         index_text = (
             "---\ntitle: 抖音同步索引\nsummary: 使用 aweme_id 维护抖音收藏增量同步状态。\n"
-            "tags: [抖音收藏, 同步索引]\ntype: system\nstatus: active\n"
-            f"created: {date}\nupdated: {date}\nconfidentiality: personal\nai_generated: true\n---\n\n"
+            "tags: [抖音收藏, 同步索引]\ntype: system\nstatus: active\nstatus_label: 活跃 / Active\n"
+            f"created: {date}\nupdated: {date}\nai_generated: true\n---\n\n"
             "# 抖音同步索引\n\n" + INDEX_START + "\n" + index_block + "\n" + INDEX_END + "\n"
         )
 
@@ -472,24 +601,31 @@ def main() -> int:
     report_text = (
         "---\n"
         f"title: {json.dumps('抖音收藏同步报告', ensure_ascii=False)}\n"
-        f"summary: {json.dumps(f'记录本次抖音收藏同步结果，完整性为 {completeness}。', ensure_ascii=False)}\n"
-        "tags: [抖音收藏, 同步报告]\ntype: system\nstatus: active\nsource: ai\n"
+        f"summary: {json.dumps(f'记录本次抖音收藏同步结果，完整性为 {completeness_label}。', ensure_ascii=False)}\n"
+        "tags: [抖音收藏, 同步报告]\ntype: system\nstatus: active\nstatus_label: 活跃 / Active\nsource: ai\n"
         f"created: {report_date}\nupdated: {report_date}\n"
-        "confidentiality: personal\nai_generated: true\n---\n\n"
+        "ai_generated: true\n---\n\n"
         f"# 抖音收藏同步报告\n\n| 项目 | 内容 |\n|---|---|\n"
         f"| 执行时间 | {synced_at} |\n| 收藏合集 | {md_cell(args.collection or '未指定')} |\n"
         f"| 页面显示总数 | {md_cell(displayed_total)} |\n| 当前捕获唯一数 | {len(current)} |\n"
         f"| 索引原有数 | {indexed_before} |\n| 合并唯一数 | {union_unique} |\n| 差额 | {difference} |\n"
-        f"| 分页结束 | {'是' if page_complete else '否/待确认'} |\n| 完整性 | {completeness} |\n"
+        f"| 分页结束 | {'是' if page_complete else '否/待确认'} |\n| 完整性 | {completeness_label} |\n"
         f"| 变更 | 新增 {added} / 更新 {updated} / 跳过 {skipped} |\n"
         f"| 缺少分享或视频地址 | {sum(bool(row.get('missing')) for row in records)} |\n"
         "| 安全检查 | 未读取或保存 Cookie、sessionid、请求头或 Authorization |\n"
     )
 
     atomic_write(args.output, output_text)
+    atomic_write_gzip(state_path, state)
     atomic_write(args.index, index_text)
     atomic_write(args.report, report_text)
-    print(json.dumps({"output": str(args.output), "index": str(args.index), "report": str(args.report), **stats}, ensure_ascii=False))
+    print(json.dumps({
+        "output": str(args.output),
+        "index": str(args.index),
+        "state": str(state_path),
+        "report": str(args.report),
+        **stats,
+    }, ensure_ascii=False))
     return 0
 
 
