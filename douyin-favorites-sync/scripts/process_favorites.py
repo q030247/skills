@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import gzip
 import hashlib
-import html
 import json
 import os
 import re
@@ -124,6 +123,16 @@ def timestamp_text(value: Any) -> str:
         return ""
 
 
+def display_datetime(value: Any) -> str:
+    if value in (None, ""):
+        return "—"
+    text = str(value)
+    try:
+        return datetime.fromisoformat(text).strftime("%Y-%m-%d %H:%M")
+    except ValueError:
+        return text[:16] if len(text) >= 16 else text
+
+
 def video_location_text(item: dict[str, Any]) -> str:
     poi = item.get("poi_info") if isinstance(item.get("poi_info"), dict) else {}
     address = poi.get("address_info")
@@ -180,6 +189,7 @@ def normalize(item: dict[str, Any], collection: str, captured_at: str) -> dict[s
         "h265_urls": h265,
         "collection": collection,
         "captured_at": captured_at,
+        "original_video_url": "",
         "why_saved": "待确认",
         "supports_output": "待确认",
     }
@@ -196,7 +206,10 @@ def finalize_record(record: dict[str, Any]) -> dict[str, Any]:
     record["missing"] = missing
     fingerprint_source = {
         key: value for key, value in record.items()
-        if key not in {"captured_at", "why_saved", "supports_output", "fingerprint", "missing"}
+        if key not in {
+            "captured_at", "original_video_url", "why_saved",
+            "supports_output", "fingerprint", "missing",
+        }
     }
     canonical = json.dumps(fingerprint_source, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     record["fingerprint"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
@@ -208,7 +221,7 @@ def merge_records(old: dict[str, Any], new: dict[str, Any], *, prefer_new: bool)
     for key, value in new.items():
         if key in {"fingerprint", "missing"}:
             continue
-        if key in {"why_saved", "supports_output"} and merged.get(key) not in (None, "", "待确认"):
+        if key in {"original_video_url", "why_saved", "supports_output"} and merged.get(key) not in (None, "", "待确认"):
             continue
         if key not in merged or merged[key] in (None, "", [], {}) or (prefer_new and value not in (None, "", [], {})):
             merged[key] = value
@@ -256,11 +269,14 @@ def md_cell(value: Any) -> str:
     return str(value).replace("\r", " ").replace("\n", " ").replace("|", "\\|")
 
 
-def md_link(label: str, url: str) -> str:
+def md_url(url: str) -> str:
     if not url:
         return "待确认"
-    safe = html.escape(url, quote=True).replace("|", "&#124;")
-    return f'<a href="{safe}">{html.escape(label)}</a>'
+    return md_cell(url)
+
+
+def md_optional_url(url: str) -> str:
+    return md_url(url) if url else ""
 
 
 def split_md_row(line: str) -> list[str]:
@@ -291,39 +307,56 @@ def read_manual_fields(path: Path) -> dict[str, dict[str, str]]:
         return {}
     lines = path.read_text(encoding="utf-8").splitlines()
     result: dict[str, dict[str, str]] = {}
-    header_index = next((index for index, line in enumerate(lines) if line.startswith("| 序号 | 作品 ID | 标题/描述 |")), None)
+    header_index = next((
+        index for index, line in enumerate(lines)
+        if line.startswith("|") and (
+            (
+                "作品 ID" in line
+                and "为什么收藏" in line
+                and "支持什么决策/输出" in line
+            )
+            or (
+                "视频地址" in line
+                and "视频原始链" in line
+            )
+        )
+    ), None)
     if header_index is None:
         return result
     header = split_md_row(lines[header_index])
     positions = {name: index for index, name in enumerate(header)}
     id_index = positions.get("作品 ID")
+    video_page_index = positions.get("视频地址")
+    original_url_index = positions.get("视频原始链")
     why_index = positions.get("为什么收藏")
     supports_index = positions.get("支持什么决策/输出")
-    if id_index is None or why_index is None or supports_index is None:
+    needed = [value for value in (id_index, video_page_index, original_url_index, why_index, supports_index) if value is not None]
+    if not needed:
         return result
     for line in lines[header_index + 2:]:
         if not line.startswith("|"):
             break
         cells = split_md_row(line)
-        if max(id_index, why_index, supports_index) >= len(cells):
+        if max(needed) >= len(cells):
             continue
-        aweme_id = cells[id_index].strip()
+        if id_index is not None:
+            aweme_id = cells[id_index].strip()
+        else:
+            match = re.search(r"/(?:video|note)/(\d+)", cells[video_page_index].strip())
+            aweme_id = match.group(1) if match else ""
         if not aweme_id:
             continue
-        values = {
-            "why_saved": cells[why_index].strip(),
-            "supports_output": cells[supports_index].strip(),
-        }
+        values: dict[str, str] = {}
+        if original_url_index is not None:
+            values["original_video_url"] = cells[original_url_index].strip()
+        if why_index is not None:
+            values["why_saved"] = cells[why_index].strip()
+        if supports_index is not None:
+            values["supports_output"] = cells[supports_index].strip()
         result[aweme_id] = {
             key: value for key, value in values.items() if value not in ("", "—", "待确认")
         }
     return result
-
-
-def multi_links(label: str, urls: list[str]) -> str:
-    if not urls:
-        return "待确认"
-    return "<br>".join(md_link(f"{label}{index + 1}", url) for index, url in enumerate(urls))
 
 
 def markdown_body(records: list[dict[str, Any]], collection: str, stats: dict[str, Any], synced_at: str) -> str:
@@ -338,27 +371,14 @@ def markdown_body(records: list[dict[str, Any]], collection: str, stats: dict[st
         f"| 完整性 | {stats['completeness_label']} |",
         f"| 本次变更 | 新增 {stats['added']} / 更新 {stats['updated']} / 跳过 {stats['skipped']} |",
         "", "## 收藏列表", "",
-        "| 序号 | 作品 ID | 标题/描述 | 作者 | 发布时间 | 时长(ms) | 类型 | 点赞 | 评论 | 分享 | 收藏 | 话题 | 视频位置 | 为什么收藏 | 支持什么决策/输出 | 作品链接 |",
-        "|---:|---|---|---|---|---:|---|---:|---:|---:|---:|---|---|---|---|---|",
-    ]
-    for index, record in enumerate(records, 1):
-        lines.append("| " + " | ".join([
-            str(index), md_cell(record["aweme_id"]), md_cell(record["title"]), md_cell(record["author"]),
-            md_cell(record["create_time"]), md_cell(record["duration_ms"]), md_cell(record["aweme_type"]),
-            md_cell(record["likes"]), md_cell(record["comments"]), md_cell(record["shares"]),
-            md_cell(record["collects"]), md_cell(record["tags"]), md_cell(record.get("video_location")),
-            md_cell(record["why_saved"]),
-            md_cell(record["supports_output"]), md_link("打开", record["douyin_url"]),
-        ]) + " |")
-    lines.extend([
-        "", "## 链接与媒体地址（必需）", "",
-        "| 作品 ID | 分享链接 | 视频播放地址 | H264 地址 | H265 地址 | 媒体地址采集时间 |",
+        "| 视频名称 | 视频地址 | 视频原始链 | 视频标签 | 视频发布时间 | 作者 |",
         "|---|---|---|---|---|---|",
-    ])
+    ]
     for record in records:
         lines.append("| " + " | ".join([
-            md_cell(record["aweme_id"]), md_link("分享", record["share_url"]), md_link("播放", record["video_url"]),
-            multi_links("H264-", record["h264_urls"]), multi_links("H265-", record["h265_urls"]), md_cell(record["captured_at"]),
+            md_cell(record["title"]), md_url(record["douyin_url"]),
+            md_optional_url(record.get("original_video_url", "")),
+            md_cell(record["tags"]), display_datetime(record["create_time"]), md_cell(record["author"]),
         ]) + " |")
     lines.extend(["", "## 待确认", "", "| 作品 ID | 问题 | 建议动作 |", "|---|---|---|"])
     missing_rows = 0
@@ -459,6 +479,7 @@ def main() -> int:
         state = {"schema_version": 2, "items": legacy_items or {}}
     index.pop("items", None)
     existing = state["items"]
+    migrating_original_video_url = int(state.get("schema_version", 2)) < 3
     action_labels = {
         "added": "新增 / Added",
         "updated": "已更新 / Updated",
@@ -487,7 +508,14 @@ def main() -> int:
         entry = existing.get(aweme_id)
         if not isinstance(entry, dict) or not isinstance(entry.get("record"), dict):
             continue
+        if (
+            migrating_original_video_url
+            and fields.get("original_video_url")
+            and fields["original_video_url"] == entry["record"].get("video_url")
+        ):
+            fields.pop("original_video_url")
         entry["record"].update(fields)
+        entry["record"].setdefault("original_video_url", "")
         entry["record"] = finalize_record(entry["record"])
     indexed_before = len(existing)
     added = updated = skipped = 0
@@ -572,7 +600,7 @@ def main() -> int:
     else:
         output_text = render_document(title, args.collection, output_body, synced_at)
 
-    state.update({"schema_version": 2, "updated_at": synced_at, "items": existing})
+    state.update({"schema_version": 3, "updated_at": synced_at, "items": existing})
     index_json = json.dumps(index, ensure_ascii=False, indent=2, sort_keys=True)
     index_block = (
         f"```json\n{index_json}\n```\n\n"
