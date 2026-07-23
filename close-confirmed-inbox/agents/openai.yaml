@@ -1,4 +1,4 @@
 interface:
   display_name: "关闭已确认输入"
-  short_description: "仅按人工勾选的归档审批迁移来源，并同步更新索引、双链和报告"
-  default_prompt: "使用 $close-confirmed-inbox 处理归档审批清单中已经勾选的输入。"
+  short_description: "发现待归档来源并生成审批候选，再关闭已由人工明确批准的输入"
+  default_prompt: "使用 $close-confirmed-inbox 刷新待批准归档候选，并处理已经勾选批准的输入。"
