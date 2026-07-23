@@ -415,19 +415,24 @@ def note_pair(
         ("source_url", source_url), ("source_created_at", source_created),
         ("source_updated_at", source_updated), ("note_id", note_id),
         ("profile_name", args.profile), ("sync_status", "synced"),
+        ("sync_status_label", "已同步 / Synced"),
         ("created", date), ("updated", now_local().date().isoformat()),
         ("ai_generated", False),
     ]
     if args.confidentiality:
         common.append(("confidentiality", args.confidentiality))
+    status_labels = {"raw": "原始 / Raw", "processing": "处理中 / Processing", "active": "活跃 / Active"}
+    status_label = status_labels.get(args.status, f"待确认 / {args.status}")
     summary_text = "\n\n".join([
         frontmatter([
             ("title", f"{date} {title} 智能纪要"),
             ("summary", "飞书妙记生成的智能纪要，需结合原始逐字稿复核。"),
             ("tags", ["飞书妙记", "会议纪要"]), ("type", args.summary_type),
-            ("status", args.status), ("content_role", "summary"),
+            ("status", args.status), ("status_label", status_label), ("content_role", "summary"),
             ("capture_types", []), ("ai_processing_status", "unprocessed"),
-            ("article_extraction_status", "not_applicable"), *common,
+            ("ai_processing_status_label", "未处理 / Unprocessed"),
+            ("article_extraction_status", "not_applicable"),
+            ("article_extraction_status_label", "不适用 / Not applicable"), *common,
         ]),
         f"# {date} {title} 智能纪要",
         f"> 对应原始记录：[[{summary_link}]]",
@@ -443,8 +448,9 @@ def note_pair(
             ("title", f"{date} {title} 原始逐字稿"),
             ("summary", "飞书妙记的原始文字记录，结论待确认。"),
             ("tags", ["飞书妙记", "原始记录", "逐字稿"]), ("type", args.transcript_type),
-            ("status", args.status), ("content_role", "transcript"),
+            ("status", args.status), ("status_label", status_label), ("content_role", "transcript"),
             ("transcript_review_status", "pending_review"),
+            ("transcript_review_status_label", "待人工检查 / Pending review"),
             ("transcript_text_source", ""), ("corrected_transcript", ""), *common,
         ]),
         f"# {date} {title} 原始逐字稿",
@@ -506,6 +512,7 @@ summary: {json_scalar('记录飞书妙记与本地智能纪要、原始逐字稿
 tags: [飞书妙记, 同步, 索引]
 type: system
 status: active
+status_label: 活跃 / Active
 source: feishu-minutes
 created: {today}
 updated: {today}

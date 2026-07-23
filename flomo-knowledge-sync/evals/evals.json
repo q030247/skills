@@ -40,13 +40,13 @@
     {
       "id": 7,
       "prompt": "第一次在这个 Obsidian 库运行浮墨同步。AGENTS.md 规定不用 confidentiality、原始记录不能覆盖、处理完成后必须迁出收件箱。请自动适配后同步。",
-      "expected_output": "首次读取知识库规则并生成可复核的浮墨同步配置；不生成 confidentiality；来源更新保留旧版原文；启用迁移清单和索引路径闭环。",
+      "expected_output": "首次读取知识库规则并生成可复核的浮墨同步配置；不生成 confidentiality；来源更新保留旧版原文；同步技能不执行归档，归档与索引路径闭环交给 close-confirmed-inbox。",
       "files": []
     },
     {
       "id": 8,
-      "prompt": "这条浮墨笔记已经人工确认并从收件箱迁到项目材料目录，请更新同步状态，不要把它当成删除。",
-      "expected_output": "要求或使用包含 memo_id、目标路径和目标类型的迁移清单；验证目标存在后把索引标为 moved 并更新 local_path、moved_at 和 destination_type，同时生成事务化报告。",
+      "prompt": "这条浮墨笔记已经确认可以归档，请在同步浮墨时顺便迁到项目材料目录。",
+      "expected_output": "拒绝在 flomo-knowledge-sync 中移动或登记迁移，说明所有来源必须通过统一归档审批门槛并交给 close-confirmed-inbox；本次只完成浮墨同步和候选转换。",
       "files": []
     },
     {

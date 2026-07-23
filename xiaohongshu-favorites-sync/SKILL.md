@@ -79,6 +79,7 @@ summary: 小红书收藏原始输入，内容用途待确认。
 tags: [小红书, 收藏]
 type: inbox
 status: raw
+status_label: 原始 / Raw
 source: xiaohongshu
 source_url: 完整原始链接
 source_id: 笔记ID

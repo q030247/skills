@@ -32,6 +32,7 @@ summary: 本地增量同步的抖音收藏合集，共 [N] 条，最近同步于
 tags: [抖音收藏, 收件箱]
 type: inbox
 status: raw
+status_label: 原始 / Raw
 source: douyin
 source_collection: [合集名]
 created: YYYY-MM-DD
