@@ -34,6 +34,8 @@ updated: YYYY-MM-DD
 ai_generated: false
 ---
 
+- [ ] 整理完毕 <!-- feishu_processing_complete -->
+
 # YYYY-MM-DD 主题 智能纪要
 
 > 对应原始记录：[[YYYY-MM-DD-主题-原始逐字稿]]
@@ -101,6 +103,8 @@ updated: YYYY-MM-DD
 ai_generated: false
 ---
 
+- [ ] 整理完毕 <!-- feishu_processing_complete -->
+
 # YYYY-MM-DD 主题 原始逐字稿
 
 > 对应智能纪要：[[YYYY-MM-DD-主题-智能纪要]]
@@ -117,3 +121,5 @@ ai_generated: false
 - 飞书妙记：来源 URL（如有）
 - 智能纪要：[[YYYY-MM-DD-主题-智能纪要]]
 ```
+
+两篇新同步文档都在 YAML 后、正文最前方写入同一个稳定标记。未勾选表示尚未整理；人工改为`- [x]`表示该文档已经整理完毕。同步和每日整理都不得自动勾选或覆盖这个人工状态。来源包只有在智能纪要与原始逐字稿都已勾选时，才视为整体整理完毕；只有一篇勾选时标记为待确认。

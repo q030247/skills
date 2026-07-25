@@ -116,6 +116,7 @@ class SyncScriptTest(unittest.TestCase):
             self.assertIn('article_extraction_status_label: "不适用 / Not applicable"', text)
             self.assertIn('status_label: "原始 / Raw"', text)
             self.assertIn('sync_status_label: "已同步 / Synced"', text)
+            self.assertEqual(text.count("- [ ] 整理完毕 <!-- feishu_processing_complete -->"), 1)
             self.assertIn("<!-- AI:START -->", text)
             self.assertIn("<!-- AI:END -->", text)
         for transcript in transcripts:
@@ -126,6 +127,7 @@ class SyncScriptTest(unittest.TestCase):
             self.assertIn('transcript_review_status_label: "待人工检查 / Pending review"', text)
             self.assertIn('transcript_text_source: ""', text)
             self.assertIn('corrected_transcript: ""', text)
+            self.assertEqual(text.count("- [ ] 整理完毕 <!-- feishu_processing_complete -->"), 1)
             self.assertIn("人工校订闸门", text)
 
         index = (self.root / "inbox" / "minutes" / "index.md").read_text(encoding="utf-8")
