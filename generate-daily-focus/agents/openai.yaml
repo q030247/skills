@@ -1,0 +1,4 @@
+interface:
+  display_name: "Generate Daily Focus"
+  short_description: "Create up to three evidence-backed outcomes for today"
+  default_prompt: "Use $generate-daily-focus to recommend up to three outcomes for today from my active projects, open tasks, weekly plan, and latest reports; follow my workspace instructions for priorities, privacy, paths, and output format."
