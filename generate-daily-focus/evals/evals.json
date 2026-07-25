@@ -1,0 +1,23 @@
+{
+  "skill_name": "generate-daily-focus",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Use $generate-daily-focus to recommend up to three outcomes for today. Read my workspace instructions for project, task, weekly-plan, report, priority, and output locations.",
+      "expected_output": "Generates no more than three evidence-backed outcomes, applies workspace-specific priority rules, cites canonical sources, and does not modify source tasks or project status.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "Generate today's focus note, but there are only two well-supported outcomes in the active projects and open tasks.",
+      "expected_output": "Returns two outcomes without inventing a third, distinguishes formal tasks from candidates or raw input, and records any material uncertainty.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "Regenerate today's focus note after a new processing report arrives. The existing note contains a human-maintained section.",
+      "expected_output": "Uses the new report only as permitted by workspace rules, preserves the human-maintained section, avoids version-suffixed duplicates, and stops for confirmation if safe regeneration is ambiguous.",
+      "files": []
+    }
+  ]
+}
