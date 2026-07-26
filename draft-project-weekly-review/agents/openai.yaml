@@ -1,0 +1,4 @@
+interface:
+  display_name: "Draft Project Weekly Review"
+  short_description: "Draft evidence-backed weekly reviews for active projects"
+  default_prompt: "Use $draft-project-weekly-review to draft this week’s active-project review from project pages, reports, plans, logs, decisions, and tasks."

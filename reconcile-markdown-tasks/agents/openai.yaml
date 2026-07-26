@@ -1,0 +1,4 @@
+interface:
+  display_name: "Reconcile Markdown Tasks"
+  short_description: "Audit formal Markdown tasks and repair missing completion dates"
+  default_prompt: "Use $reconcile-markdown-tasks to audit formal tasks, add explicitly authorized missing completion dates, and generate an exception report."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Audit Inbox Health"
+  short_description: "Audit weekly inbox intake, integrity, and processing health"
+  default_prompt: "Use $audit-inbox-health to audit this week’s inbox and source-processing health without moving or deleting content."

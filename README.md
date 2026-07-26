@@ -35,6 +35,9 @@
 | 技能 | 何时使用 | 主要能力 |
 |---|---|---|
 | [`generate-daily-focus`](./generate-daily-focus/) | 根据活跃项目、正式待办、本周计划和最新处理报告生成今日聚焦建议 | 从调用提示词或目标工作区规则读取路径、优先级、隔离边界和输出格式，生成最多三个可追溯的今日结果；不修改源任务、负责人、截止日期或项目状态 |
+| [`reconcile-markdown-tasks`](./reconcile-markdown-tasks/) | 对账 Obsidian 或 Markdown 知识库中的正式任务 | 审计完成日期、分类标签、精确重复和任务来源链接；仅在明确授权后给已勾选任务补日期，不根据语义自动完成、合并或删除任务 |
+| [`audit-inbox-health`](./audit-inbox-health/) | 检查每周收件箱采集、处理和下游流转健康度 | 基于来源索引和处理报告统计增量、陈旧输入、重复标识、来源组完整性、同步故障和下游产出；只生成报告 |
+| [`draft-project-weekly-review`](./draft-project-weekly-review/) | 为活跃项目生成可追溯的周复盘草稿 | 区分本周完成与实际结果，汇总阻塞、已确认决定、下一步和状态建议；不修改项目、任务或正式日志 |
 | [`obsidian-ai-growth-organizer`](./obsidian-ai-growth-organizer/) | 诊断、初始化或分批整理 Obsidian / Markdown 知识库 | 建立目录、Schema、索引、模板、收件箱和人工确认机制，并以报告记录批量整理结果 |
 | [`close-confirmed-inbox`](./close-confirmed-inbox/) | 发现可归档候选，并关闭已经人工批准的收件箱输入 | 从来源索引和处理报告幂等生成未勾选候选；对所有来源执行相同审批门槛，只迁移已批准的文件或来源包，并统一更新双语状态、双链、来源索引和报告 |
 
