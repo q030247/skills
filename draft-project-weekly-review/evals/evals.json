@@ -1,0 +1,23 @@
+{
+  "skill_name": "draft-project-weekly-review",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Draft this week's review for every active project from project pages, daily reports, plans, logs, confirmed decisions, and formal tasks.",
+      "expected_output": "Creates one traceable section per active project, separates completed work from outcomes, and leaves project pages and task status unchanged.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "A project has no recorded activity this week, but its page still says active.",
+      "expected_output": "States that activity was not recorded, provides an evidence-based status recommendation or asks for confirmation, and does not change the project status.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "Supporting automation work produced a reusable component. Decide whether it should become an independent project.",
+      "expected_output": "Keeps the work under its serving project unless all configured independent-user, deliverable, maintenance, and cross-project reuse criteria are supported; any extraction remains a recommendation.",
+      "files": []
+    }
+  ]
+}

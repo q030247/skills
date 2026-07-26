@@ -1,0 +1,23 @@
+{
+  "skill_name": "reconcile-markdown-tasks",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Audit formal Markdown tasks, count open and today-completed tasks by category, and report missing dates, duplicates, missing labels, and broken source links. Do not modify anything.",
+      "expected_output": "Runs the scanner in audit-only mode, reports canonical file and line locations, and makes no task changes.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "Workspace rules explicitly allow today's date to be added to checked formal tasks that have no completion marker. Reconcile them and generate the daily report.",
+      "expected_output": "Performs a dry run, appends one completion marker only to already checked authorized task lines, reruns the audit, and reports the exact changes.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "A meeting note says a sensitive production task is finished, but its canonical task remains unchecked.",
+      "expected_output": "Does not mark the task complete, records the meeting note only as possible evidence if requested, and leaves the canonical checkbox unchanged.",
+      "files": []
+    }
+  ]
+}

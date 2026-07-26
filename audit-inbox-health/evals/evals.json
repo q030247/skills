@@ -1,0 +1,23 @@
+{
+  "skill_name": "audit-inbox-health",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Audit this week's inbox health from source indexes and processing reports. Count intake by source, find items older than seven days without processing, and generate a read-only report.",
+      "expected_output": "Uses stable source units, separates synchronization from processing, reports zero categories explicitly, and does not modify inbox records or indexes.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "One source uses paired summary and transcript files. Check this week's pairs for missing members and inconsistent IDs without reading every transcript body.",
+      "expected_output": "Audits pair integrity from index and metadata first, reads bodies only for a specific unresolved question, and reports traceable anomalies.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "The inbox grew this week, but downstream output appears low. Determine whether processing is stalled.",
+      "expected_output": "Compares verified processing records and downstream outcomes, distinguishes unknown evidence from no value, and proposes follow-up checks without moving or archiving inputs.",
+      "files": []
+    }
+  ]
+}
