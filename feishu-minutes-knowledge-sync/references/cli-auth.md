@@ -32,9 +32,13 @@ npx @larksuite/cli@latest install
 
 - 妙记搜索仅支持 user 身份。
 - 使用 `auth status --json --verify` 验证 token，不以本地缓存存在作为成功证据。
+- `sync`必须在脚本内部执行验证；`doctor`成功不能被长期缓存，妙记搜索成功也不能替代用户身份验证。
 - 权限不足时优先按 CLI 错误中的 `permission_violations` 请求最小 scope。
 - 认证 URL 视为不可修改字符串；同时展示原始链接和 CLI 生成的二维码。
 - 授权分两轮进行，不能在用户尚未看到 URL 时阻塞等待。
+- 无人值守任务发现认证失败时只生成受阻报告并退出；不自动启动登录，不在同一轮反复重试。
+- 认证失败只阻断远端同步；调用方继续执行纯本地候选转换阶段。
+- 区分`network_unavailable`、`token_needs_refresh`、`permission_missing`和`user_identity_unavailable`，避免把网络故障误报为令牌过期。
 - 不在 Markdown、日志、索引或报告中保存 access token、app secret、device code 或授权 URL 查询参数。
 
 ## 常见停止条件
@@ -44,4 +48,3 @@ npx @larksuite/cli@latest install
 - `verified` 不为真、用户身份不可用或 token 失效。
 - 权限错误没有可安全自动补齐的最小 scope。
 - 飞书返回无权读取某条妙记。
-

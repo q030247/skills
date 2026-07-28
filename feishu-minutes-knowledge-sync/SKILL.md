@@ -62,6 +62,7 @@ description: 将飞书妙记通过 lark-cli 增量同步到本地 Obsidian 或 M
    ```
 
 3. 只有 `verified` 和用户身份状态表明确有效时，才视为已连接。记录用户名或 open_id 用于人工确认，但不要写入妙记正文。
+   `sync` 子命令必须在脚本内部再次执行同一认证闸门；不能只依赖 Agent 先运行过 `doctor`，也不能用后续搜索成功替代认证审计。
 4. 未登录、token 失效或缺少妙记读取权限时，采用 split-flow：
 
    ```sh
@@ -69,6 +70,7 @@ description: 将飞书妙记通过 lark-cli 增量同步到本地 Obsidian 或 M
    ```
 
    按错误提示补充最小必要 scope；不要直接请求全部权限。把返回的授权 URL 原样交给用户，并用 `lark-cli auth qrcode` 生成二维码。当前轮到此暂停。用户回复已完成授权后，重新发起授权流程取得新的 device code，再由 Agent 完成 CLI 指示的认证收尾，最后重新运行 `auth status --verify`。
+   无人值守任务只写入受阻报告并退出，不自动调用 `auth login`，不在同一轮重试。网络错误与`needs_refresh`必须分别记录；前者等待网络恢复，后者进入人工重新授权。
 5. 不把“profile 存在”当作“已授权”，也不把 bot 身份当作用户身份。妙记搜索与详情使用 `--as user`。
 
 认证与 profile 的平台无关细节见[CLI 与认证参考](references/cli-auth.md)。
@@ -139,6 +141,9 @@ python3 <skill-dir>/scripts/sync_minutes.py sync \
 
 `doctor` 返回非零时，按其 JSON 结果处理 CLI 缺失或授权问题，不继续同步。`sync` 的退出码：`0` 完成、`2` 前置条件失败、`3` 候选超过批次上限需确认、`4` 部分失败。退出码 `3` 后先向用户展示数量；获得确认后追加 `--confirm-batch`，脚本仍只处理第一批，不会突破 `--batch-limit`。
 
+即使调用方遗漏`doctor`，`sync`也会在任何搜索、详情下载或索引写入前强制执行`auth status --verify`。认证失败时生成不含凭据的受阻报告，且不得调用`minutes +search`或`minutes +detail`。
+认证失败结果中的`local_candidate_conversion_required: true`是续跑信号：调用方必须继续执行第9节的纯本地候选转换，不得因远端同步受阻而提前结束整个任务。
+
 ## 7. 脚本执行的增量规则
 
 1. 读取索引中的 token、两个本地路径、来源更新时间和状态。
@@ -195,6 +200,7 @@ python3 <skill-dir>/scripts/sync_minutes.py sync \
 每次执行都生成报告，至少包括：
 
 - 执行时间、profile 名称、已验证的用户身份、查询范围、目标目录和唯一键
+- 认证检查时间、是否执行`auth status --verify`、总体认证、用户认证、用户可用状态和失败分类；不得用“同步成功”反推认证通过
 - 新增、跳过、部分失败、失败、待确认数量
 - 已批准候选、转换成功、已存在、转换失败和待确认数量，以及每个成功任务的目标双链
 - 每条新增妙记的智能纪要与逐字稿双链
@@ -202,6 +208,7 @@ python3 <skill-dir>/scripts/sync_minutes.py sync \
 - 安全检查：是否覆盖、移动、删除或对外发送数据
 
 报告是 AI 衍生内容，遵循知识库的 AI 标识规则。报告不得包含 token 凭据或完整敏感正文。
+同一天可能运行多次时，报告默认文件名包含时分秒，避免后一次覆盖前一次认证证据。
 
 ## 完成检查
 

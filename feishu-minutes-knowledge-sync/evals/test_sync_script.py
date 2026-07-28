@@ -22,9 +22,22 @@ if args == ["--version"]:
     print("lark-cli version test")
     raise SystemExit(0)
 if args[:2] == ["auth", "status"]:
-    print(json.dumps({"ok": True, "data": {"verified": True, "identities": {"user": {"status": "active"}}}}))
+    mode = os.environ.get("FAKE_AUTH", "verified")
+    marker = os.environ.get("FAKE_AUTH_MARKER")
+    if marker:
+        Path(marker).write_text("auth-status\n", encoding="utf-8")
+    if mode == "needs_refresh":
+        print(json.dumps({"ok": True, "data": {"verified": False, "identities": {"user": {"verified": False, "available": False, "status": "needs_refresh"}}}}))
+    elif mode == "network":
+        print(json.dumps({"ok": False, "error": {"message": "DNS resolve failed"}}), file=sys.stderr)
+        raise SystemExit(1)
+    else:
+        print(json.dumps({"ok": True, "data": {"verified": True, "identities": {"user": {"verified": True, "available": True, "status": "active"}}}}))
     raise SystemExit(0)
 if args[:2] == ["minutes", "+search"]:
+    marker = os.environ.get("FAKE_SEARCH_MARKER")
+    if marker:
+        Path(marker).write_text("search\n", encoding="utf-8")
     updated = os.environ.get("FAKE_UPDATE", "2026-07-10T10:00:00+08:00")
     participant = "--participant-ids" in args
     page = args[args.index("--page-token") + 1] if "--page-token" in args else ""
@@ -74,7 +87,7 @@ class SyncScriptTest(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
-    def run_sync(self, update=None, extra=None):
+    def run_sync(self, update=None, extra=None, auth=None, env_extra=None):
         cmd = [
             sys.executable, str(SYNC_SCRIPT), "sync",
             "--cli", str(self.cli), "--profile", "team-a",
@@ -89,7 +102,49 @@ class SyncScriptTest(unittest.TestCase):
         env = os.environ.copy()
         if update:
             env["FAKE_UPDATE"] = update
+        if auth:
+            env["FAKE_AUTH"] = auth
+        env.update(env_extra or {})
         return subprocess.run(cmd, env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+
+    def test_sync_enforces_verified_user_preflight(self):
+        auth_marker = self.root / "auth-called"
+        search_marker = self.root / "search-called"
+        result = self.run_sync(
+            auth="needs_refresh",
+            env_extra={
+                "FAKE_AUTH_MARKER": str(auth_marker),
+                "FAKE_SEARCH_MARKER": str(search_marker),
+            },
+        )
+        self.assertEqual(result.returncode, 2, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["status"], "reauthorization_required")
+        self.assertEqual(payload["reason"], "token_needs_refresh")
+        self.assertFalse(payload["remote_sync_attempted"])
+        self.assertTrue(payload["local_candidate_conversion_required"])
+        self.assertTrue(auth_marker.exists())
+        self.assertFalse(search_marker.exists())
+        self.assertFalse((self.root / "inbox" / "minutes" / "index.md").exists())
+        report = (self.root / "reports" / "sync.md").read_text(encoding="utf-8")
+        self.assertIn("`token_needs_refresh`", report)
+        self.assertIn("未调用 `minutes +search`", report)
+        self.assertIn("远端认证失败不取消本地候选转换", report)
+        self.assertNotIn("device_code", report)
+
+    def test_network_failure_is_distinct_and_does_not_search(self):
+        search_marker = self.root / "search-called"
+        result = self.run_sync(
+            auth="network",
+            env_extra={"FAKE_SEARCH_MARKER": str(search_marker)},
+        )
+        self.assertEqual(result.returncode, 2, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["status"], "auth_blocked")
+        self.assertEqual(payload["reason"], "network_unavailable")
+        self.assertFalse(search_marker.exists())
+        report = (self.root / "reports" / "sync.md").read_text(encoding="utf-8")
+        self.assertIn("`network_unavailable`", report)
 
     def test_sync_then_idempotent_resync(self):
         first = self.run_sync()
@@ -97,6 +152,10 @@ class SyncScriptTest(unittest.TestCase):
         result = json.loads(first.stdout)
         self.assertEqual(result["added"], 2)
         self.assertEqual(result["skipped"], 0)
+        report = (self.root / "reports" / "sync.md").read_text(encoding="utf-8")
+        self.assertIn("已执行 `auth status --verify`：true", report)
+        self.assertIn("用户身份认证通过：true", report)
+        self.assertIn("用户身份可用：true", report)
 
         notes = sorted((self.root / "inbox" / "minutes").glob("*.md"))
         content_notes = [p for p in notes if p.name != "index.md"]
