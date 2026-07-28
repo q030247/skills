@@ -34,6 +34,13 @@ class SyncError(RuntimeError):
     pass
 
 
+class AuthPreconditionError(SyncError):
+    def __init__(self, reason: str, audit: Dict[str, Any]):
+        super().__init__(reason)
+        self.reason = reason
+        self.audit = audit
+
+
 def eprint(*args: object) -> None:
     print(*args, file=sys.stderr)
 
@@ -123,6 +130,63 @@ def run_cli(cli: str, argv: Sequence[str], cwd: Path) -> Dict[str, Any]:
 def data_of(payload: Dict[str, Any]) -> Dict[str, Any]:
     data = payload.get("data", payload)
     return data if isinstance(data, dict) else {}
+
+
+def classify_auth_error(message: str) -> str:
+    lowered = message.lower()
+    if any(value in lowered for value in ("needs_refresh", "expired", "token invalid", "invalid token")):
+        return "token_needs_refresh"
+    if any(value in lowered for value in ("permission", "scope", "forbidden")):
+        return "permission_missing"
+    if any(value in lowered for value in ("resolve", "dns", "network", "timeout", "timed out", "connection")):
+        return "network_unavailable"
+    return "auth_verification_failed"
+
+
+def verify_user_auth(cli: str, profile: str, cwd: Path) -> Dict[str, Any]:
+    checked_at = iso_now()
+    try:
+        payload = run_cli(
+            cli,
+            ["auth", "status", "--profile", profile, "--json", "--verify"],
+            cwd,
+        )
+    except SyncError as exc:
+        reason = classify_auth_error(str(exc))
+        raise AuthPreconditionError(reason, {
+            "profile": profile,
+            "checked_at": checked_at,
+            "verify_command_executed": True,
+            "overall_verified": False,
+            "user_verified": False,
+            "user_available": False,
+            "reason": reason,
+        }) from exc
+
+    auth_data = data_of(payload)
+    identities = auth_data.get("identities") if isinstance(auth_data.get("identities"), dict) else {}
+    user = identities.get("user") if isinstance(identities.get("user"), dict) else {}
+    overall_verified = bool(auth_data.get("verified"))
+    user_verified = bool(user.get("verified"))
+    user_available = bool(user.get("available"))
+    status = str(user.get("status") or auth_data.get("status") or "")
+    verified = overall_verified and user_verified and user_available
+    reason = ""
+    if not verified:
+        reason = "token_needs_refresh" if status.lower() == "needs_refresh" else "user_identity_unavailable"
+    audit = {
+        "profile": profile,
+        "checked_at": checked_at,
+        "verify_command_executed": True,
+        "overall_verified": overall_verified,
+        "user_verified": user_verified,
+        "user_available": user_available,
+        "user_status": status,
+        "reason": reason,
+    }
+    if not verified:
+        raise AuthPreconditionError(reason, audit)
+    return audit
 
 
 def extract_items(payload: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], bool, str]:
@@ -564,6 +628,7 @@ def write_report(
     updates_pending: List[Tuple[str, str, str]],
     failures: List[Tuple[str, str]],
     pending: List[str],
+    auth_audit: Dict[str, Any],
 ) -> None:
     lines = [
         "---",
@@ -578,6 +643,13 @@ def write_report(
         f"- 知识库路径来源：`{args.knowledge_base_source}`",
         f"- 目标目录：`{rel(kb, safe_path(kb, args.target_dir, 'target_dir'))}`",
         "- 唯一键：`minute_token`", "",
+        "## 认证审计", "",
+        f"- 检查时间：`{auth_audit.get('checked_at', '')}`",
+        f"- 已执行 `auth status --verify`：{str(bool(auth_audit.get('verify_command_executed'))).lower()}",
+        f"- 总体认证通过：{str(bool(auth_audit.get('overall_verified'))).lower()}",
+        f"- 用户身份认证通过：{str(bool(auth_audit.get('user_verified'))).lower()}",
+        f"- 用户身份可用：{str(bool(auth_audit.get('user_available'))).lower()}",
+        f"- 用户状态：`{auth_audit.get('user_status', '')}`", "",
         "## 统计", "",
         f"- 新增：{len(added)}", f"- 跳过：{skipped}", f"- 已删除且永久跳过：{deleted_skipped}",
         f"- 来源元数据回填：{metadata_backfilled}", f"- 来源更新待确认：{len(updates_pending)}",
@@ -599,6 +671,47 @@ def write_report(
     atomic_write(report_path, "\n".join(lines))
 
 
+def write_auth_blocked_report(
+    args: argparse.Namespace,
+    kb: Path,
+    report_path: Path,
+    auth_audit: Dict[str, Any],
+) -> None:
+    today = now_local().date().isoformat()
+    reason = str(auth_audit.get("reason") or "auth_verification_failed")
+    lines = [
+        "---",
+        f"title: {json_scalar(today + ' 飞书妙记同步受阻报告')}",
+        f"summary: {json_scalar('用户身份认证未通过；未查询飞书妙记，也未写入来源包或同步索引。')}",
+        "tags: [飞书妙记, 同步报告, 认证受阻]",
+        "type: system", "status: blocked", "source: ai",
+        f"created: {today}", f"updated: {today}", "ai_generated: true", "---", "",
+        f"# {today} 飞书妙记同步受阻报告", "",
+        "## 认证审计", "",
+        f"- Profile：`{args.profile}`",
+        f"- 检查时间：`{auth_audit.get('checked_at', '')}`",
+        "- 已执行 `auth status --verify`：true",
+        f"- 总体认证通过：{str(bool(auth_audit.get('overall_verified'))).lower()}",
+        f"- 用户身份认证通过：{str(bool(auth_audit.get('user_verified'))).lower()}",
+        f"- 用户身份可用：{str(bool(auth_audit.get('user_available'))).lower()}",
+        f"- 用户状态：`{auth_audit.get('user_status', '')}`",
+        f"- 失败分类：`{reason}`", "",
+        "## 执行结果", "",
+        "- 未调用 `minutes +search` 或 `minutes +detail`。",
+        "- 未写入智能纪要、原始逐字稿或同步索引。",
+        "- 本轮没有自动重试，也没有自动发起浏览器授权。", "",
+        "## 本地闭环", "",
+        "- 远端认证失败不取消本地候选转换；调用方仍须独立检查并幂等转换已批准的飞书候选待办。", "",
+        "## 下一步", "",
+        "- `network_unavailable`：恢复网络后重新运行验证。",
+        "- `token_needs_refresh`：使用同一 profile 按最小妙记读取权限完成交互式重新授权，再运行验证。",
+        "- 重新授权后必须再次通过 `auth status --verify`，才能恢复同步。", "",
+        "## 安全检查", "",
+        "- 报告未保存 access token、refresh token、device code、app secret 或授权 URL。", "",
+    ]
+    atomic_write(report_path, "\n".join(lines))
+
+
 def doctor(args: argparse.Namespace) -> int:
     cli = shutil.which(args.cli)
     if not cli:
@@ -606,16 +719,12 @@ def doctor(args: argparse.Namespace) -> int:
         return EXIT_PRECONDITION
     version = subprocess.run([cli, "--version"], text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False).stdout.strip()
     try:
-        auth = run_cli(cli, ["auth", "status", "--profile", args.profile, "--json", "--verify"], Path.cwd())
-    except SyncError as exc:
-        print(json.dumps({"ok": False, "cli_found": True, "version": version, "profile": args.profile, "auth_error": str(exc)}, ensure_ascii=False, indent=2))
+        audit = verify_user_auth(cli, args.profile, Path.cwd())
+    except AuthPreconditionError as exc:
+        print(json.dumps({"ok": False, "cli_found": True, "version": version, "profile": args.profile, "auth": exc.audit}, ensure_ascii=False, indent=2))
         return EXIT_PRECONDITION
-    auth_data = data_of(auth)
-    identities = auth_data.get("identities") if isinstance(auth_data.get("identities"), dict) else {}
-    user = identities.get("user") if isinstance(identities.get("user"), dict) else {}
-    verified = bool(auth_data.get("verified")) and bool(user.get("verified")) and bool(user.get("available"))
-    print(json.dumps({"ok": verified, "cli_found": True, "version": version, "profile": args.profile, "auth": auth_data}, ensure_ascii=False, indent=2))
-    return 0 if verified else EXIT_PRECONDITION
+    print(json.dumps({"ok": True, "cli_found": True, "version": version, "profile": args.profile, "auth": audit}, ensure_ascii=False, indent=2))
+    return 0
 
 
 def sync(args: argparse.Namespace) -> int:
@@ -628,6 +737,20 @@ def sync(args: argparse.Namespace) -> int:
     index_path = safe_path(kb, args.index_path, "index_path")
     report_path = safe_path(kb, args.report_path, "report_path")
     target.mkdir(parents=True, exist_ok=True)
+    try:
+        auth_audit = verify_user_auth(cli, args.profile, kb)
+    except AuthPreconditionError as exc:
+        write_auth_blocked_report(args, kb, report_path, exc.audit)
+        print(json.dumps({
+            "ok": False,
+            "status": "reauthorization_required" if exc.reason == "token_needs_refresh" else "auth_blocked",
+            "reason": exc.reason,
+            "profile": args.profile,
+            "report": rel(kb, report_path),
+            "remote_sync_attempted": False,
+            "local_candidate_conversion_required": True,
+        }, ensure_ascii=False, indent=2))
+        return EXIT_PRECONDITION
     existing_index = index_path.read_text(encoding="utf-8") if index_path.exists() else None
     state = load_state(index_path)
     validate_local_states(state, kb, args.legacy_root, args.skip_local_validation_prefix)
@@ -703,7 +826,7 @@ def sync(args: argparse.Namespace) -> int:
             path.unlink(missing_ok=True)
         raise
     pending = [f"索引中的 `{token}` 本地配对文件不完整，未自动恢复。" for token in missing]
-    write_report(args, kb, report_path, added, skipped, deleted_skipped, metadata_backfilled, updates_pending, failures, pending)
+    write_report(args, kb, report_path, added, skipped, deleted_skipped, metadata_backfilled, updates_pending, failures, pending, auth_audit)
     result = {
         "ok": not failures,
         "added": len(added), "skipped": skipped, "deleted_skipped": deleted_skipped,
@@ -732,7 +855,7 @@ def build_parser() -> argparse.ArgumentParser:
     sync_p.add_argument("--default-folder", default="feishu-minutes-knowledge-base", help="Portable fallback folder relative to the current working directory.")
     sync_p.add_argument("--target-dir", default="feishu-minutes")
     sync_p.add_argument("--index-path", default="feishu-minutes/feishu-minutes-sync-index.md")
-    sync_p.add_argument("--report-path", default=f"feishu-minutes/reports/{now_local().date().isoformat()}-feishu-minutes-sync-report.md")
+    sync_p.add_argument("--report-path", default=f"feishu-minutes/reports/{now_local().strftime('%Y-%m-%d-%H%M%S')}-feishu-minutes-sync-report.md")
     _, end = default_dates()
     sync_p.add_argument("--start", help="Defaults to the last successful watermark minus overlap-days, or 30 days ago for a new index.")
     sync_p.add_argument("--end", default=end)
