@@ -4,7 +4,7 @@
     {
       "id": 1,
       "prompt": "用 profile team-a 把最近 7 天我拥有或参与的飞书妙记同步到当前 Obsidian 知识库。每条要有智能纪要和原始逐字稿，不要覆盖已有内容。",
-      "expected_output": "检查 lark-cli 和 team-a profile 的用户授权，读取知识库规范后调用内置同步脚本；脚本分别查询 owned 与 participated、分页并按 token 去重，每个新 token 生成互相双链的两篇 Markdown，原始逐字稿默认 transcript_review_status: pending_review 且不能被自动放行，并在两篇都成功后更新索引和报告。",
+      "expected_output": "检查 lark-cli 和 team-a profile 的用户授权，读取知识库规范后调用内置同步脚本；脚本分别查询 owned 与 participated、分页并按 token 去重，每个新 token 生成互相双链的两篇 Markdown，原始逐字稿默认 transcript_review_status: pending_review，两个放行复选框默认不勾选，并在两篇都成功后更新索引和报告。",
       "files": []
     },
     {
@@ -40,7 +40,7 @@
     {
       "id": 7,
       "prompt": "同步进来的飞书逐字稿可能有人名和术语识别错误。先不要提炼，我会人工校订后再放行。",
-      "expected_output": "原始逐字稿保持不变并默认 transcript_review_status: pending_review；允许用户另建人工校订稿。只有用户手动设置 ready_for_extraction，同时明确使用 original 或提供有效的 corrected_transcript 后，后续流程才可提取闪念、候选待办、培训和知识。",
+      "expected_output": "原始逐字稿保持不变并默认 transcript_review_status: pending_review；允许用户另建人工校订稿。智能纪要和逐字稿双边勾选后由每日整理同步为 ready_for_extraction；未指定有效校订稿时使用 original，已指定 corrected 时校验 corrected_transcript，之后才可提取闪念、候选待办、培训和知识。",
       "files": []
     },
     {

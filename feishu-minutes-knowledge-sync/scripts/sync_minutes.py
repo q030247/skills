@@ -522,7 +522,7 @@ def note_pair(
         f"# {date} {title} 原始逐字稿",
         f"> 对应智能纪要：[[{transcript_link}]]",
         "## 原始文字记录\n\n" + transcript.rstrip(),
-        "> [!warning] 人工校订闸门\n> 原始文字记录永久保留。人工将`transcript_review_status`改为`ready_for_extraction`并明确`transcript_text_source`前，不得进行后续提取。",
+        "> [!warning] 人工校订闸门\n> 原始文字记录永久保留。智能纪要和逐字稿双边勾选“整理完毕”即表示人工放行；每日整理会同步`ready_for_extraction`并在没有有效校订稿时使用`original`。需要修正时先建立并指定校订稿，再双边勾选。",
         f"## 来源\n\n- 飞书妙记：{source_url or '未提供'}\n- 智能纪要：[[{transcript_link}]]",
     ]) + "\n"
     record = {
